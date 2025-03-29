@@ -92,3 +92,9 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+
+#map {
+  width: 100%;  /* Full width */
+  height: 100%; /* Full height */
+}

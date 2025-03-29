@@ -764,3 +764,8 @@ input:focus, select:focus, textarea:focus {
   }
 }
 
+
+#map {
+  width: 100%;  /* Full width */
+  height: 100%; /* Full height */
+}
