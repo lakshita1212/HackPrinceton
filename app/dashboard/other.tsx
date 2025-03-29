@@ -36,7 +36,7 @@ export default function PatientPage() {
             </div>
             <div className="border rounded-lg overflow-hidden h-[400px]">
               <div className="relative w-full h-full">
-                <LiveMap
+                <MapComponent
                   onLocationUpdate={(location) => {
                     // Update patient status based on distance from base
                     const distance = location.distance

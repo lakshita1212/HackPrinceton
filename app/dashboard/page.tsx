@@ -8,8 +8,9 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Phone, User, Clock, Camera, Upload, CheckCircle, AlertTriangle, UserPlus } from "lucide-react"
+import { Phone, User, Camera, Upload, CheckCircle, AlertTriangle, UserPlus, LogOut } from "lucide-react"
 import MapComponent from "./MapComponent"
+import { useRouter } from "next/navigation"
 import {
   Dialog,
   DialogContent,
@@ -49,12 +50,15 @@ const initialKnownPeople = [
 ]
 
 export default function DashboardPage() {
+  const router = useRouter()
   const [patientStatus, setPatientStatus] = useState("safe") // safe, warning, alert
   const [showIdentityDialog, setShowIdentityDialog] = useState(false)
   const [showRecognitionDialog, setShowRecognitionDialog] = useState(false)
   const [showAddPersonDialog, setShowAddPersonDialog] = useState(false)
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const [isUsingCamera, setIsUsingCamera] = useState(false)
+  const [isMapVisible, setIsMapVisible] = useState(true)
+
   const [recognitionResult, setRecognitionResult] = useState<{
     isRecognized: boolean
     person?: (typeof initialKnownPeople)[0]
@@ -69,6 +73,16 @@ export default function DashboardPage() {
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+
+  // Add a new state to track location history
+  const [locationHistory, setLocationHistory] = useState<
+    Array<{
+      time: Date
+      location: { lat: number; lng: number }
+      distance: number
+      description: string
+    }>
+  >([])
 
   // Load known people from localStorage on component mount
   useEffect(() => {
@@ -114,6 +128,10 @@ export default function DashboardPage() {
       streamRef.current = null
     }
     setIsUsingCamera(false)
+  }
+
+  const toggleMapVisibility = () => {
+    setIsMapVisible((prev) => !prev) // Toggle visibility of the map
   }
 
   const capturePhoto = () => {
@@ -194,16 +212,29 @@ export default function DashboardPage() {
     // In a real app, this would initiate a call
   }
 
+  const handleLogout = () => {
+    // In a real app, you would clear authentication tokens, cookies, etc.
+    // For this demo, we'll just navigate to the home page
+    router.push("/")
+  }
+
   return (
     <div className="container py-6">
       <div className="flex flex-col space-y-6">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
+          <div className="pl-6">
             <h1 className="text-3xl font-bold">Patient Dashboard</h1>
             <p className="text-muted-foreground">Monitor and manage your patient's location</p>
           </div>
           <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm" onClick={() => setShowIdentityDialog(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShowIdentityDialog(true)
+                setIsMapVisible(false) // Hide map when dialog opens
+              }}
+            >
               <User className="mr-2 h-4 w-4" />
               Who am I?
             </Button>
@@ -213,6 +244,7 @@ export default function DashboardPage() {
               onClick={() => {
                 setShowRecognitionDialog(true)
                 resetRecognition()
+                setIsMapVisible(false) // Hide map when dialog opens
               }}
             >
               <UserPlus className="mr-2 h-4 w-4" />
@@ -221,6 +253,10 @@ export default function DashboardPage() {
             <Button variant="outline" size="sm" onClick={handleEmergencyCall}>
               <Phone className="mr-2 h-4 w-4" />
               Emergency Call
+            </Button>
+            <Button variant="destructive" size="sm" onClick={handleLogout}>
+              <LogOut className="mr-2 h-4 w-4" />
+              Logout
             </Button>
           </div>
         </div>
@@ -246,33 +282,72 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="border rounded-lg overflow-hidden h-[400px]">
-                <div className="relative w-full h-full">
-                  <MapComponent
-                    onLocationUpdate={(location) => {
-                      // Update patient status based on distance from base
-                      const distance = location.distance
-                      setCurrentDistance(distance)
-                      if (distance > 500) {
-                        setPatientStatus("alert")
-                      } else if (distance > 400) {
-                        setPatientStatus("warning")
-                      } else {
-                        setPatientStatus("safe")
-                      }
+                {isMapVisible && (
+                  <div
+                    className="relative w-full h-full map-container"
+                    style={{
+                      visibility: isMapVisible ? "visible" : "hidden",
+                      position: isMapVisible ? "relative" : "absolute", // Position set to absolute when hidden
                     }}
-                    safeRadius={500}
-                  />
-                </div>
-              </div>
-              <div className="mt-4 flex justify-between items-center">
-                <div className="flex items-center space-x-2">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Last updated: {new Date().toLocaleTimeString()}</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm">Distance from base: {Math.round(currentDistance)}m</span>
-                  <Badge variant="outline">Safe radius: 500m</Badge>
-                </div>
+                    id="mapComponent"
+                  >
+                    <MapComponent
+                      onLocationUpdate={(location) => {
+                        // Update patient status based on distance from base
+                        const distance = location.distance
+                        setCurrentDistance(distance)
+                        if (distance > 500) {
+                          setPatientStatus("alert")
+                        } else if (distance > 400) {
+                          setPatientStatus("warning")
+                        } else {
+                          setPatientStatus("safe")
+                        }
+
+                        // Add to location history
+                        const now = new Date()
+                        let description = "Unknown location"
+
+                        // Determine location description based on distance
+                        if (distance < 50) {
+                          description = "Base Location"
+                        } else if (distance < 200) {
+                          description = "Near Home"
+                        } else if (distance < 400) {
+                          description = "Neighborhood"
+                        } else if (distance < 600) {
+                          description = "Local Area"
+                        } else {
+                          description = "Far from Home"
+                        }
+
+                        // Add new location to history (limit to 20 entries)
+                        setLocationHistory((prev) => {
+                          // Only add if position has changed significantly or time difference > 5 minutes
+                          const lastEntry = prev[0]
+                          if (lastEntry) {
+                            const timeDiff = now.getTime() - lastEntry.time.getTime()
+                            const positionDiff = Math.abs(lastEntry.distance - distance)
+
+                            if (timeDiff < 5 * 60 * 1000 && positionDiff < 50) {
+                              return prev // Don't add if too similar to last entry
+                            }
+                          }
+
+                          const newEntry = {
+                            time: now,
+                            location: { lat: location.lat, lng: location.lng },
+                            distance: Math.round(distance),
+                            description,
+                          }
+
+                          return [newEntry, ...prev].slice(0, 20)
+                        })
+                      }}
+                      safeRadius={500}
+                    />
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -362,27 +437,41 @@ export default function DashboardPage() {
                 <TabsTrigger value="month">This Month</TabsTrigger>
               </TabsList>
               <TabsContent value="today" className="space-y-4">
-                <div className="border-l-2 border-primary pl-4 ml-2 relative">
-                  <div className="absolute w-3 h-3 bg-primary rounded-full -left-[7px] top-1"></div>
-                  <p className="font-medium">10:30 AM - Current Location</p>
-                  <p className="text-sm text-muted-foreground">320 meters from base location</p>
-                </div>
-                <div className="border-l-2 border-muted pl-4 ml-2 relative">
-                  <div className="absolute w-3 h-3 bg-muted rounded-full -left-[7px] top-1"></div>
-                  <p className="font-medium">9:45 AM - Park</p>
-                  <p className="text-sm text-muted-foreground">450 meters from base location</p>
-                </div>
-                <div className="border-l-2 border-muted pl-4 ml-2 relative">
-                  <div className="absolute w-3 h-3 bg-muted rounded-full -left-[7px] top-1"></div>
-                  <p className="font-medium">8:30 AM - Base Location</p>
-                  <p className="text-sm text-muted-foreground">Patient at home</p>
-                </div>
+                {locationHistory.length === 0 ? (
+                  <p className="text-muted-foreground">
+                    No activity recorded today. Your location history will appear here.
+                  </p>
+                ) : (
+                  locationHistory.map((entry, index) => (
+                    <div
+                      key={entry.time.getTime()}
+                      className={`border-l-2 ${index === 0 ? "border-primary" : "border-muted"} pl-4 ml-2 relative`}
+                    >
+                      <div
+                        className={`absolute w-3 h-3 ${index === 0 ? "bg-primary" : "bg-muted"} rounded-full -left-[7px] top-1`}
+                      ></div>
+                      <p className="font-medium">
+                        {entry.time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
+                        {entry.description}
+                      </p>
+                      <p className="text-sm text-muted-foreground">{entry.distance} meters from base location</p>
+                    </div>
+                  ))
+                )}
               </TabsContent>
               <TabsContent value="week">
-                <p className="text-muted-foreground">Activity history for this week will be displayed here.</p>
+                <p className="text-muted-foreground">
+                  {locationHistory.length > 0
+                    ? "Location history for this week will be available in the full version."
+                    : "No activity recorded this week."}
+                </p>
               </TabsContent>
               <TabsContent value="month">
-                <p className="text-muted-foreground">Activity history for this month will be displayed here.</p>
+                <p className="text-muted-foreground">
+                  {locationHistory.length > 0
+                    ? "Location history for this month will be available in the full version."
+                    : "No activity recorded this month."}
+                </p>
               </TabsContent>
             </Tabs>
           </CardContent>
@@ -390,7 +479,13 @@ export default function DashboardPage() {
       </div>
 
       {/* Who am I Dialog */}
-      <Dialog open={showIdentityDialog} onOpenChange={setShowIdentityDialog}>
+      <Dialog
+        open={showIdentityDialog}
+        onOpenChange={(open) => {
+          setShowIdentityDialog(open)
+          setIsMapVisible(!open) // Show map when dialog closes
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Patient Identification</DialogTitle>
@@ -439,6 +534,7 @@ export default function DashboardPage() {
         onOpenChange={(open) => {
           if (!open) stopCamera()
           setShowRecognitionDialog(open)
+          setIsMapVisible(!open) // Show map when dialog closes
         }}
       >
         <DialogContent className="sm:max-w-md">
@@ -577,7 +673,13 @@ export default function DashboardPage() {
       </Dialog>
 
       {/* Add Person Dialog */}
-      <Dialog open={showAddPersonDialog} onOpenChange={setShowAddPersonDialog}>
+      <Dialog
+        open={showAddPersonDialog}
+        onOpenChange={(open) => {
+          setShowAddPersonDialog(open)
+          setIsMapVisible(!open) // Show map when dialog closes
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add New Person</DialogTitle>

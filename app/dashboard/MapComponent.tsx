@@ -1,22 +1,23 @@
-"use client"
+"\"use client"
 
 import { useState, useEffect, useRef } from "react"
-import { MapPin, Home, Clock } from "lucide-react"
+import { MapPin, Home, Clock, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
 
-// Mock patient location data
-const INITIAL_LOCATION = {
-  lat: 40.7128,
-  lng: -74.006,
-  timestamp: new Date().toISOString(),
+// Base location remains fixed
+const BASE_LOCATION = {
+  lat: 40.74235119427471,
+  lng: -74.17844566385337,
 }
 
-const BASE_LOCATION = {
-  lat: 40.7138,
-  lng: -74.0065,
+// Default initial location (Princeton, NJ)
+const DEFAULT_LOCATION = {
+  lat: 40.68937946092346,
+  lng: -74.04452188314681,
 }
 
 // Calculate distance between two points in meters
@@ -39,15 +40,20 @@ interface MapComponentProps {
 }
 
 export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: MapComponentProps) {
-  const [patientLocation, setPatientLocation] = useState(INITIAL_LOCATION)
-  const [currentDistance, setCurrentDistance] = useState(320)
+  const [patientLocation, setPatientLocation] = useState(DEFAULT_LOCATION)
+  const [currentDistance, setCurrentDistance] = useState(0)
   const [lastUpdated, setLastUpdated] = useState(new Date())
   const [showBaseLocation, setShowBaseLocation] = useState(true)
+  const [locationError, setLocationError] = useState<string | null>(null)
+  const [isSimulationMode, setIsSimulationMode] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<L.Map | null>(null)
   const patientMarkerRef = useRef<L.Marker | null>(null)
   const baseMarkerRef = useRef<L.Marker | null>(null)
   const safeZoneCircleRef = useRef<L.Circle | null>(null)
+  const simulationIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // Custom icons for markers
   const createPatientIcon = () => {
@@ -86,9 +92,132 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
     })
   }
 
+  // Try to get user's location or fall back to simulation
+  useEffect(() => {
+    // Check if geolocation is available
+    setIsLoading(true)
+    if (!navigator.geolocation) {
+      setLocationError("Geolocation is not supported by your browser")
+      startSimulationMode()
+      setIsLoading(false)
+      return
+    }
+
+    try {
+      // Try to get initial position
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords
+          const newLocation = {
+            lat: latitude,
+            lng: longitude,
+          }
+
+          setPatientLocation(newLocation)
+          setLastUpdated(new Date())
+          setLocationError(null)
+          setIsLoading(false)
+
+          // Calculate distance from base
+          const distance = calculateDistance(latitude, longitude, BASE_LOCATION.lat, BASE_LOCATION.lng)
+          setCurrentDistance(Math.round(distance))
+
+          // Notify parent component
+          if (onLocationUpdate) {
+            onLocationUpdate({
+              lat: latitude,
+              lng: longitude,
+              distance,
+            })
+          }
+        },
+        (error) => {
+          console.error("Error getting location:", error)
+          setLocationError(`Geolocation access denied. Using simulation mode instead.`)
+          startSimulationMode()
+          setIsLoading(false)
+        },
+      )
+    } catch (error) {
+      console.error("Error accessing geolocation:", error)
+      setLocationError("Error accessing geolocation. Using simulation mode instead.")
+      startSimulationMode()
+      setIsLoading(false)
+    }
+
+    return () => {
+      stopSimulationMode()
+    }
+  }, [])
+
+  // Start simulation mode for location updates
+  const startSimulationMode = () => {
+    setIsSimulationMode(true)
+
+    // Calculate initial distance
+    const distance = calculateDistance(patientLocation.lat, patientLocation.lng, BASE_LOCATION.lat, BASE_LOCATION.lng)
+    setCurrentDistance(Math.round(distance))
+
+    // Notify parent component of initial location
+    if (onLocationUpdate) {
+      onLocationUpdate({
+        lat: patientLocation.lat,
+        lng: patientLocation.lng,
+        distance,
+      })
+    }
+
+    // Start simulation interval
+    simulationIntervalRef.current = setInterval(() => {
+      // Simulate patient movement
+      const newLat = patientLocation.lat + (Math.random() - 0.5) * 0.001
+      const newLng = patientLocation.lng + (Math.random() - 0.5) * 0.001
+      const newLocation = {
+        lat: newLat,
+        lng: newLng,
+      }
+
+      setPatientLocation(newLocation)
+      setLastUpdated(new Date())
+
+      // Calculate distance from base
+      const distance = calculateDistance(newLat, newLng, BASE_LOCATION.lat, BASE_LOCATION.lng)
+      setCurrentDistance(Math.round(distance))
+
+      // Update marker position
+      if (patientMarkerRef.current) {
+        patientMarkerRef.current.setLatLng([newLat, newLng])
+      }
+
+      // Notify parent component
+      if (onLocationUpdate) {
+        onLocationUpdate({
+          lat: newLat,
+          lng: newLng,
+          distance,
+        })
+      }
+    }, 5000)
+  }
+
+  // Stop simulation mode
+  const stopSimulationMode = () => {
+    if (simulationIntervalRef.current) {
+      clearInterval(simulationIntervalRef.current)
+      simulationIntervalRef.current = null
+    }
+  }
+
   // Initialize Leaflet map
   useEffect(() => {
-    if (typeof window !== "undefined" && mapRef.current && !mapInstanceRef.current) {
+    // Don't initialize the map until we have a non-default location
+    // (either real location or simulation has started)
+    if (
+      typeof window !== "undefined" &&
+      mapRef.current &&
+      !mapInstanceRef.current &&
+      (patientLocation.lat !== DEFAULT_LOCATION.lat || patientLocation.lng !== DEFAULT_LOCATION.lng || isSimulationMode)
+    ) {
       // Fix Leaflet icon paths issue
       delete (L.Icon.Default.prototype as any)._getIconUrl
       L.Icon.Default.mergeOptions({
@@ -110,7 +239,10 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
       const patientIcon = createPatientIcon()
       const patientMarker = L.marker([patientLocation.lat, patientLocation.lng], { icon: patientIcon })
         .addTo(map)
-        .bindPopup("Patient Location")
+        .bindPopup(isSimulationMode ? "Simulated Location" : "Your Location")
+
+      // Create bounds with patient location
+      const bounds = L.latLngBounds([[patientLocation.lat, patientLocation.lng]])
 
       // Add base location marker if enabled
       if (showBaseLocation) {
@@ -129,6 +261,9 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
 
         baseMarkerRef.current = baseMarker
         safeZoneCircleRef.current = safeZoneCircle
+
+        bounds.extend([BASE_LOCATION.lat, BASE_LOCATION.lng])
+        map.fitBounds(bounds, { padding: [50, 50] })
       }
 
       patientMarkerRef.current = patientMarker
@@ -144,7 +279,7 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
         safeZoneCircleRef.current = null
       }
     }
-  }, [])
+  }, [patientLocation, isSimulationMode, showBaseLocation, safeRadius])
 
   // Update map when showBaseLocation changes
   useEffect(() => {
@@ -181,43 +316,6 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
     }
   }, [showBaseLocation, safeRadius])
 
-  // Update patient location periodically
-  useEffect(() => {
-    const interval = setInterval(() => {
-      // Simulate patient movement
-      const newLat = patientLocation.lat + (Math.random() - 0.5) * 0.001
-      const newLng = patientLocation.lng + (Math.random() - 0.5) * 0.001
-      const newLocation = {
-        lat: newLat,
-        lng: newLng,
-        timestamp: new Date().toISOString(),
-      }
-
-      setPatientLocation(newLocation)
-      setLastUpdated(new Date())
-
-      // Calculate distance from base
-      const distance = calculateDistance(newLocation.lat, newLocation.lng, BASE_LOCATION.lat, BASE_LOCATION.lng)
-      setCurrentDistance(Math.round(distance))
-
-      // Update marker position
-      if (patientMarkerRef.current) {
-        patientMarkerRef.current.setLatLng([newLocation.lat, newLocation.lng])
-      }
-
-      // Notify parent component
-      if (onLocationUpdate) {
-        onLocationUpdate({
-          lat: newLocation.lat,
-          lng: newLocation.lng,
-          distance,
-        })
-      }
-    }, 5000)
-
-    return () => clearInterval(interval)
-  }, [patientLocation, onLocationUpdate])
-
   const centerOnPatient = () => {
     if (mapInstanceRef.current && patientMarkerRef.current) {
       mapInstanceRef.current.setView(patientMarkerRef.current.getLatLng(), 15)
@@ -228,10 +326,145 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
     setShowBaseLocation(!showBaseLocation)
   }
 
+  const refreshLocation = () => {
+    if (isSimulationMode) {
+      // In simulation mode, just generate a new random position
+      const newLat = patientLocation.lat + (Math.random() - 0.5) * 0.002
+      const newLng = patientLocation.lng + (Math.random() - 0.5) * 0.002
+      const newLocation = {
+        lat: newLat,
+        lng: newLng,
+      }
+
+      setPatientLocation(newLocation)
+      setLastUpdated(new Date())
+
+      // Calculate distance from base
+      const distance = calculateDistance(newLat, newLng, BASE_LOCATION.lat, BASE_LOCATION.lng)
+      setCurrentDistance(Math.round(distance))
+
+      // Update marker position
+      if (patientMarkerRef.current) {
+        patientMarkerRef.current.setLatLng([newLat, newLng])
+      }
+
+      // Center map on new location
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.setView([newLat, newLng], mapInstanceRef.current.getZoom())
+      }
+
+      // Notify parent component
+      if (onLocationUpdate) {
+        onLocationUpdate({
+          lat: newLat,
+          lng: newLng,
+          distance,
+        })
+      }
+      return
+    }
+
+    // Try to get real location if not in simulation mode
+    if (!navigator.geolocation) {
+      setLocationError("Geolocation is not supported by your browser")
+      return
+    }
+
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords
+          const newLocation = {
+            lat: latitude,
+            lng: longitude,
+          }
+
+          setPatientLocation(newLocation)
+          setLastUpdated(new Date())
+          setLocationError(null)
+
+          // Calculate distance from base
+          const distance = calculateDistance(latitude, longitude, BASE_LOCATION.lat, BASE_LOCATION.lng)
+          setCurrentDistance(Math.round(distance))
+
+          // Update marker position
+          if (patientMarkerRef.current) {
+            patientMarkerRef.current.setLatLng([latitude, longitude])
+          }
+
+          // Center map on new location
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.setView([latitude, longitude], mapInstanceRef.current.getZoom())
+          }
+
+          // Notify parent component
+          if (onLocationUpdate) {
+            onLocationUpdate({
+              lat: latitude,
+              lng: longitude,
+              distance,
+            })
+          }
+        },
+        (error) => {
+          console.error("Error getting location:", error)
+          if (!isSimulationMode) {
+            setLocationError(`Geolocation access denied. Using simulation mode instead.`)
+            startSimulationMode()
+          }
+        },
+      )
+    } catch (error) {
+      console.error("Error accessing geolocation:", error)
+      if (!isSimulationMode) {
+        setLocationError("Error accessing geolocation. Using simulation mode instead.")
+        startSimulationMode()
+      }
+    }
+  }
+
   return (
     <div className="w-full h-full flex flex-col">
+      {isLoading && (
+        <div className="absolute inset-0 bg-white/80 z-10 flex items-center justify-center">
+          <div className="flex flex-col items-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+            <p className="mt-2 text-sm text-muted-foreground">Getting your location...</p>
+          </div>
+        </div>
+      )}
+      {locationError && (
+        <Alert variant="warning" className="mb-4">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>{locationError}</AlertDescription>
+        </Alert>
+      )}
+
+      {isSimulationMode && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-2 rounded-md mb-4">
+          <div className="flex items-center">
+            <AlertTriangle className="h-4 w-4 mr-2" />
+            <span className="font-medium">Simulation Mode Active</span>
+          </div>
+          <p className="text-sm mt-1">Using simulated location data. This may happen when:</p>
+          <ul className="text-sm list-disc list-inside ml-2 mt-1">
+            <li>The site is not served over HTTPS</li>
+            <li>Location permissions were denied</li>
+            <li>You're viewing in a preview environment</li>
+          </ul>
+          <p className="text-sm mt-1">
+            In a production environment with proper permissions, real location data would be used.
+          </p>
+        </div>
+      )}
+
       <div className="relative flex-1">
         <div ref={mapRef} className="w-full h-full rounded-lg overflow-hidden"></div>
+        {isSimulationMode && (
+          <div className="absolute top-2 right-2 bg-amber-100 border border-amber-400 text-amber-700 px-2 py-1 rounded-md text-xs">
+            Simulation Mode
+          </div>
+        )}
       </div>
       <div className="mt-4 flex justify-between items-center">
         <div className="flex items-center space-x-2">
@@ -250,7 +483,11 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
         </Button>
         <Button variant="outline" size="sm" onClick={centerOnPatient}>
           <MapPin className="mr-2 h-4 w-4" />
-          Center on Patient
+          Center on {isSimulationMode ? "Simulated" : "Current"} Location
+        </Button>
+        <Button variant="outline" size="sm" onClick={refreshLocation}>
+          <Clock className="mr-2 h-4 w-4" />
+          Refresh Location
         </Button>
       </div>
     </div>

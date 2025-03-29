@@ -28,6 +28,22 @@ document.addEventListener("DOMContentLoaded", () => {
   const recognizedRelationship = document.getElementById("recognized-relationship")
   const recognizedDetails = document.getElementById("recognized-details")
 
+  let isMapVisible = false;
+
+  // Function to toggle the map visibility
+  function toggleMapVisibility() {
+    if (isMapVisible) {
+      // Hide the map
+      document.getElementById("map").classList.add("hidden");
+      isMapVisible = false;
+    } else {
+      // Show the map
+      document.getElementById("map").classList.remove("hidden");
+      isMapVisible = true;
+    }
+  }
+
+  
   // Variables
   let stream = null
 
@@ -87,7 +103,7 @@ document.addEventListener("DOMContentLoaded", () => {
     cameraView.classList.add("hidden")
     previewContainer.classList.add("hidden")
     recognitionResult.classList.add("hidden")
-
+    
     // Show the requested view
     viewToShow.classList.remove("hidden")
   }
