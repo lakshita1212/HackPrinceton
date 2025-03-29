@@ -1,6 +1,6 @@
-{/*THIS IS THE LATEST PUSH*/}
 
 "use client"
+{/*THIS IS THE LATEST PUSH*/}
 
 import type React from "react"
 
