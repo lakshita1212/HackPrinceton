@@ -33,6 +33,7 @@ interface KnownPerson {
   supabase_img_url: string | null
   phone: number
   user_id: string
+  is_emergency_contact: boolean
 }
 
 interface User {
@@ -59,12 +60,20 @@ export default function SetupPage() {
   const [personDetails, setPersonDetails] = useState("")
   const [personPhotoURL, setPersonPhotoURL] = useState("")
   const [patientName, setPatientName] = useState("")
+  const [patientRelationship, setPatientRelationship] = useState("")
+  const [baseLocation, setBaseLocation] = useState("")
+  const [safeRadius, setSafeRadius] = useState(500)
+  const [emergencyContactName, setEmergencyContactName] = useState("")
+  const [emergencyContactPhone, setEmergencyContactPhone] = useState("")
+  const [emergencyContactRelationship, setEmergencyContactRelationship] = useState("")
+  const [secondaryContactPhone, setSecondaryContactPhone] = useState("")
   const [patientPhotos, setPatientPhotos] = useState<{front?: string, side?: string}>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
   const frontPhotoRef = useRef<HTMLInputElement>(null)
   const sidePhotoRef = useRef<HTMLInputElement>(null)
   const [personAddress, setPersonAddress] = useState("")
   const [personPhone, setPersonPhone] = useState("")
+  const [isEmergencyContact, setIsEmergencyContact] = useState(false)
 
   // Load current user and their data on component mount
   useEffect(() => {
@@ -130,9 +139,9 @@ export default function SetupPage() {
   }
 
   const nextStep = async () => {
-    if (step < 5) {
+    if (step < 4) {
       setStep(step + 1)
-      setProgress((step + 1) * 20)
+      setProgress((step + 1) * 25)
     } else {
       if (!currentUser) return
 
@@ -279,16 +288,39 @@ export default function SetupPage() {
     }
   }
 
+
   const handleRemovePerson = async (id: number) => {
+    if (!currentUser) return
+
     setIsLoading(true)
     try {
+      // First, get the person's photo URL if it exists
+      const person = knownPeople.find(p => p.id === id)
+      if (person?.supabase_img_url) {
+        // Extract the file path from the URL
+        const filePath = person.supabase_img_url.split('/').pop()
+        if (filePath) {
+          // Delete the image from storage
+          const { error: storageError } = await supabase.storage
+            .from('patient-images')
+            .remove([filePath])
+
+          if (storageError) {
+            console.error('Error deleting image from storage:', storageError)
+          }
+        }
+      }
+
+      // Delete the person from the database
       const { error } = await supabase
         .from('Known_People')
         .delete()
         .eq('id', id)
+        .eq('user_id', currentUser.id)
       
       if (error) throw error
       
+      // Update local state
       setKnownPeople(knownPeople.filter((person) => person.id !== id))
       toast.success('Person removed successfully')
     } catch (error) {
@@ -344,6 +376,34 @@ export default function SetupPage() {
     setPersonPhotoURL("")
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
+    }
+  }
+  const handleDeletePatientPhoto = async (type: 'front' | 'side') => {
+    if (!currentUser) return
+
+    try {
+      // Update the state to remove the photo
+      setPatientPhotos(prev => ({
+        ...prev,
+        [type]: undefined
+      }))
+
+      // Update the database to remove the photo URL
+      const updateField = type === 'front' ? 'patient_photo_url' : 'patient_side_photo_url'
+      const { error } = await supabase
+        .from('users')
+        .update({ [updateField]: null })
+        .eq('id', currentUser.id)
+
+      if (error) {
+        console.error('Error deleting patient photo:', error)
+        toast.error('Failed to delete patient photo')
+      } else {
+        toast.success('Photo deleted successfully')
+      }
+    } catch (error) {
+      console.error('Error deleting patient photo:', error)
+      toast.error('Failed to delete patient photo')
     }
   }
 
@@ -468,7 +528,6 @@ export default function SetupPage() {
               </div>
             </div>
           )}
-
           {step === 3 && (
             <div className="space-y-4">
               <h3 className="text-lg font-medium">Add Known People</h3>
@@ -502,6 +561,11 @@ export default function SetupPage() {
                         <div className="flex-grow">
                           <p className="font-medium">{person.name}</p>
                           <p className="text-sm text-muted-foreground">{person.relationship}</p>
+                          {person.is_emergency_contact && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                              Emergency Contact
+                            </span>
+                          )}
                         </div>
                         <Button
                           variant="ghost"
@@ -584,24 +648,42 @@ export default function SetupPage() {
                           variant="destructive"
                           size="icon"
                           className="absolute -top-2 -right-2 h-6 w-6 rounded-full"
-                          onClick={clearPhotoPreview}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            clearPhotoPreview();
+                          }}
                         >
                           <X className="h-3 w-3" />
                         </Button>
                       </div>
                     ) : (
-                      <div className="border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center h-24 cursor-pointer hover:border-primary">
+                      <div 
+                        className="border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center h-24 cursor-pointer hover:border-primary"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
                         <Upload className="h-6 w-6 text-muted-foreground mb-1" />
                         <p className="text-xs text-muted-foreground">Upload photo</p>
                         <input
                           type="file"
-                          className="absolute inset-0 opacity-0 cursor-pointer"
-                          accept="image/*"
                           ref={fileInputRef}
+                          className="hidden"
+                          accept="image/*"
                           onChange={handlePhotoChange}
                         />
                       </div>
                     )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="flex items-center space-x-2 cursor-pointer">
+                      <Input 
+                        type="checkbox" 
+                        className="w-4 h-4"
+                        checked={isEmergencyContact}
+                        onChange={(e) => setIsEmergencyContact(e.target.checked)}
+                      />
+                      <span>Designate as Emergency Contact</span>
+                    </Label>
                   </div>
 
                   <Button onClick={handleAddPerson} className="w-full">
@@ -611,44 +693,7 @@ export default function SetupPage() {
               </div>
             </div>
           )}
-
-          {step === 4 && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-medium">Emergency Contact Information</h3>
-              <p className="text-muted-foreground">Provide emergency contact details for alerts</p>
-              <div className="space-y-2">
-                <Label htmlFor="emergency-name">Emergency Contact Name</Label>
-                <Input id="emergency-name" placeholder="Enter full name" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="emergency-phone">Emergency Contact Phone</Label>
-                <div className="flex items-center space-x-2">
-                  <Phone className="h-5 w-5 text-muted-foreground" />
-                  <Input id="emergency-phone" type="tel" placeholder="Enter phone number" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="emergency-relationship">Relationship to Patient</Label>
-                <Select>
-                  <SelectTrigger id="emergency-relationship">
-                    <SelectValue placeholder="Select relationship" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="family">Family Member</SelectItem>
-                    <SelectItem value="doctor">Doctor</SelectItem>
-                    <SelectItem value="friend">Friend</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="secondary-phone">Secondary Contact Phone (Optional)</Label>
-                <Input id="secondary-phone" type="tel" placeholder="Enter secondary phone number" />
-              </div>
-            </div>
-          )}
-
-          {step === 5 && (
+           {step === 4 && (
             <div className="space-y-4">
               <h3 className="text-lg font-medium">Review and Confirm</h3>
               <p className="text-muted-foreground">Please review the information below before finalizing setup</p>
@@ -660,32 +705,68 @@ export default function SetupPage() {
                   </div>
                   <div>
                     <p className="text-sm font-medium">Relationship:</p>
-                    <p className="text-sm text-muted-foreground">Family Member</p>
+                    <p className="text-sm text-muted-foreground">{patientRelationship}</p>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Base Location:</p>
-                    <p className="text-sm text-muted-foreground">123 Main St, Anytown</p>
+                    <p className="text-sm text-muted-foreground">{baseLocation}</p>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Safe Radius:</p>
-                    <p className="text-sm text-muted-foreground">500 meters</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Emergency Contact:</p>
-                    <p className="text-sm text-muted-foreground">Jane Doe</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Emergency Phone:</p>
-                    <p className="text-sm text-muted-foreground">(555) 123-4567</p>
+                    <p className="text-sm text-muted-foreground">{safeRadius} meters</p>
                   </div>
                 </div>
+
+                <div className="pt-3 border-t mt-3">
+                  <h4 className="text-sm font-medium mb-2">Emergency Contacts</h4>
+                  <div className="space-y-2">
+                    {knownPeople.filter(person => person.is_emergency_contact).map(person => (
+                      <div key={person.id} className="flex items-center space-x-3">
+                        <div className="h-8 w-8 rounded-full overflow-hidden">
+                          {person.photo_url.startsWith("data:") ? (
+                            <img
+                              src={person.photo_url}
+                              alt={person.name}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="h-full w-full bg-muted flex items-center justify-center text-sm font-semibold">
+                              {person.name.charAt(0)}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">{person.name}</p>
+                          <p className="text-sm text-muted-foreground">{person.phone}</p>
+                          <p className="text-sm text-muted-foreground">Relationship: {person.relationship}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {knownPeople.filter(person => person.is_emergency_contact).length === 0 && (
+                      <p className="text-sm text-muted-foreground">No emergency contacts designated</p>
+                    )}
+                  </div>
+                </div>
+
                 <div className="flex justify-center space-x-2">
-                  <div className="border rounded-lg w-20 h-20 flex items-center justify-center bg-muted">
-                    <p className="text-xs text-muted-foreground">Photo 1</p>
-                  </div>
-                  <div className="border rounded-lg w-20 h-20 flex items-center justify-center bg-muted">
-                    <p className="text-xs text-muted-foreground">Photo 2</p>
-                  </div>
+                  {patientPhotos.front && (
+                    <div className="relative w-20 h-20">
+                      <img 
+                        src={patientPhotos.front} 
+                        alt="Front-facing photo" 
+                        className="w-full h-full object-cover rounded-lg"
+                      />
+                    </div>
+                  )}
+                  {patientPhotos.side && (
+                    <div className="relative w-20 h-20">
+                      <img 
+                        src={patientPhotos.side} 
+                        alt="Side-profile photo" 
+                        className="w-full h-full object-cover rounded-lg"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div className="pt-3 border-t mt-3">
@@ -700,7 +781,9 @@ export default function SetupPage() {
                       View List
                     </Button>
                   </div>
-                  <p className="text-sm text-muted-foreground">{knownPeople.length} people added</p>
+                  <p className="text-sm text-muted-foreground">
+                    {knownPeople.length} people added ({knownPeople.filter(p => p.is_emergency_contact).length} emergency contacts)
+                  </p>
                 </div>
               </div>
               <div className="space-y-2">
@@ -720,17 +803,18 @@ export default function SetupPage() {
             {isLoading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {step < 5 ? "Saving..." : "Completing Setup..."}
+                {step < 4 ? "Saving..." : "Completing Setup..."}
               </>
             ) : (
-              step < 5 ? "Continue" : "Complete Setup"
+              step < 4 ? "Continue" : "Complete Setup"
             )}
           </Button>
         </CardFooter>
       </Card>
 
+
       {/* Known People Modal */}
-      <Dialog open={showKnownPeopleModal} onOpenChange={setShowKnownPeopleModal}>
+       <Dialog open={showKnownPeopleModal} onOpenChange={setShowKnownPeopleModal}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Known People List</DialogTitle>
