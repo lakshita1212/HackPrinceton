@@ -23,6 +23,33 @@ import { FormLabel } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { supabase } from "../supabaseConfig"
+import { toast } from "sonner"
+
+interface User {
+  id: string
+  email: string
+  patient_name: string
+  patient_photo_url: string | null
+}
+
+interface KnownPerson {
+  id: string
+  name: string
+  phone: string
+  relationship: string
+  photo_url: string | null
+  supabase_img_url?: string | null
+  is_emergency_contact: boolean
+  details?: string
+}
+
+
+interface NewPerson {
+  name: string
+  relationship: string
+  details: string
+}
 
 // Mock database of known people
 const initialKnownPeople = [
@@ -58,6 +85,8 @@ export default function DashboardPage() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const [isUsingCamera, setIsUsingCamera] = useState(false)
   const [isMapVisible, setIsMapVisible] = useState(true)
+  const [userData, setUserData] = useState<User | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
   const [recognitionResult, setRecognitionResult] = useState<{
     isRecognized: boolean
@@ -84,6 +113,39 @@ export default function DashboardPage() {
     }>
   >([])
 
+  useEffect(() => {
+    loadUserData()
+  }, [])
+
+
+  const loadUserData = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        router.push('/login')
+        return
+      }
+
+      // Get user data from users table
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .single()
+
+      if (userError) throw userError
+
+      if (userData) {
+        setUserData(userData)
+        loadKnownPeople(user.id)
+      }
+    } catch (error) {
+      console.error('Error loading user:', error)
+      toast.error('Failed to load user data')
+    }
+  }
+
   // Load known people from localStorage on component mount
   useEffect(() => {
     const storedPeople = localStorage.getItem("knownPeople")
@@ -107,6 +169,31 @@ export default function DashboardPage() {
       stopCamera()
     }
   }, [])
+
+  const loadKnownPeople = async (userId: string) => {
+    try {
+      const { data, error } = await supabase.from("Known_People").select("*").eq("user_id", userId)
+
+      if (error) {
+        console.error("Supabase error:", error)
+        toast.error(`Failed to load known people: ${error.message}`)
+        return
+      }
+
+      if (data) {
+        setKnownPeople(data)
+      }
+    } catch (error) {
+      console.error("Error loading known people:", error)
+      toast.error("Failed to load known people")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const getEmergencyContacts = () => {
+    return knownPeople.filter(person => person.is_emergency_contact)
+  }
 
   const startCamera = async () => {
     try {
@@ -201,10 +288,18 @@ export default function DashboardPage() {
     setCapturedImage(null)
     setRecognitionResult(null)
   }
-
   const handleEmergencyCall = () => {
-    alert("Emergency call initiated. Contacting caretaker...")
-    // In a real app, this would initiate a call or send an alert
+    const emergencyContacts = knownPeople.filter(
+      (person) =>
+        person.relationship.toLowerCase().includes("emergency") || person.relationship.toLowerCase().includes("doctor"),
+    )
+
+    if (emergencyContacts.length > 0) {
+      // In a real app, this would initiate a call
+      toast.info(`Calling emergency contact: ${emergencyContacts[0].name}`)
+    } else {
+      toast.error("No emergency contacts found")
+    }
   }
 
   const handleCallPerson = (person: any) => {
@@ -352,75 +447,87 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
+           <Card>
+            <CardHeader className="pb-2">
               <CardTitle>Patient Information</CardTitle>
               <CardDescription>Details and status</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center space-x-4">
                 <Avatar className="h-16 w-16">
-                  <AvatarImage src="/placeholder.svg" alt="Patient" />
-                  <AvatarFallback>JD</AvatarFallback>
+                  <AvatarImage src={userData?.patient_photo_url || ""} />
+                  <AvatarFallback>{userData?.patient_name?.charAt(0) || "P"}</AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="font-medium">John Doe</p>
-                  <p className="text-sm text-muted-foreground">ID: #12345</p>
+                  <h3 className="font-medium">{userData?.patient_name || "Patient Name"}</h3>
+                  <p className="text-sm text-muted-foreground">ID: #{userData?.id?.slice(-8) || "Unknown"}</p>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <div className="flex justify-between">
-                  <p className="text-sm font-medium">Status:</p>
+                <p className="text-sm font-medium">Status:</p>
+                <div className="flex items-center space-x-2">
                   <Badge
                     variant={
-                      patientStatus === "safe" ? "outline" : patientStatus === "warning" ? "secondary" : "destructive"
+                      patientStatus === "safe" ? "default" : 
+                      patientStatus === "warning" ? "default" : 
+                      "destructive"
                     }
                   >
-                    {patientStatus === "safe" ? "Safe" : patientStatus === "warning" ? "Warning" : "Alert"}
+                    {patientStatus === "safe"
+                      ? "Within Safe Zone"
+                      : patientStatus === "warning"
+                        ? "Near Boundary"
+                        : "Outside Safe Zone"}
                   </Badge>
-                </div>
-                <div className="flex justify-between">
-                  <p className="text-sm font-medium">Base Location:</p>
-                  <p className="text-sm text-right">123 Main St</p>
-                </div>
-                <div className="flex justify-between">
-                  <p className="text-sm font-medium">Safe Radius:</p>
-                  <p className="text-sm">500 meters</p>
                 </div>
               </div>
 
-              <div className="pt-2 border-t">
-                <p className="text-sm font-medium mb-2">Emergency Contacts:</p>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Base Location:</p>
+                <p className="text-sm text-muted-foreground">123 Main St</p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Safe Radius:</p>
+                <p className="text-sm text-muted-foreground">500 meters</p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Emergency Contacts:</p>
                 <div className="space-y-2">
-                  <div className="flex items-center space-x-2">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm">Jane Doe: (555) 123-4567</p>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm">Dr. Smith: (555) 987-6543</p>
-                  </div>
+                  {getEmergencyContacts().map((contact) => (
+                    <div key={contact.id} className="flex items-center justify-between p-2 border rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={contact.photo_url || undefined} />
+                          <AvatarFallback>{contact.name.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="text-sm font-medium">{contact.name}</p>
+                          <p className="text-xs text-muted-foreground">{contact.phone}</p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleCallPerson(contact)}
+                        className="h-8 w-8"
+                      >
+                        <Phone className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  {getEmergencyContacts().length === 0 && (
+                    <p className="text-sm text-muted-foreground">No emergency contacts designated</p>
+                  )}
                 </div>
               </div>
+
+              <Button className="w-full" variant="outline" onClick={() => setShowIdentityDialog(true)}>
+                Edit Patient Details
+              </Button>
             </CardContent>
-            <CardFooter>
-              <div className="w-full space-y-2">
-                <Button
-                  className="w-full"
-                  onClick={() =>
-                    setPatientStatus(
-                      patientStatus === "safe" ? "warning" : patientStatus === "warning" ? "alert" : "safe",
-                    )
-                  }
-                >
-                  Simulate Status Change
-                </Button>
-                <Button variant="outline" className="w-full">
-                  Edit Patient Details
-                </Button>
-              </div>
-            </CardFooter>
           </Card>
         </div>
 
@@ -494,23 +601,25 @@ export default function DashboardPage() {
             </DialogDescription>
             <div className="flex flex-col items-center justify-center space-y-4 py-4">
               <Avatar className="h-24 w-24">
-                <AvatarImage src="/placeholder.svg" alt="Patient" />
-                <AvatarFallback>JD</AvatarFallback>
+                <AvatarImage src={userData?.patient_photo_url || ""} alt="Patient" />
+                <AvatarFallback>{userData?.patient_name?.charAt(0) || "P"}</AvatarFallback>
               </Avatar>
               <div className="text-center">
-                <h3 className="font-medium text-lg">John Doe</h3>
-                <p className="text-muted-foreground">Patient ID: #12345</p>
+                <h3 className="font-medium text-lg">{userData?.patient_name}</h3>
+                <p className="text-muted-foreground">Patient ID: #{userData?.id?.slice(0, 8)}</p>
               </div>
-              <div className="w-full space-y-2">
-                <div className="flex justify-between">
-                  <p className="text-sm font-medium">Caretaker:</p>
-                  <p className="text-sm">Jane Smith</p>
+              {knownPeople.length > 0 && (
+                <div className="w-full space-y-2">
+                  <div className="flex justify-between">
+                    <p className="text-sm font-medium">Caretaker:</p>
+                    <p className="text-sm">{knownPeople[0].name}</p>
+                  </div>
+                  <div className="flex justify-between">
+                    <p className="text-sm font-medium">Relationship:</p>
+                    <p className="text-sm">{knownPeople[0].relationship}</p>
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <p className="text-sm font-medium">Relationship:</p>
-                  <p className="text-sm">Family Member</p>
-                </div>
-              </div>
+              )}
             </div>
           </DialogHeader>
           <DialogFooter>

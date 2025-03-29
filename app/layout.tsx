@@ -1,20 +1,25 @@
-import type { Metadata } from 'next'
-import './globals.css'
+import "./globals.css"
+import { Inter } from "next/font/google"
+import { Toaster } from "sonner"
 
-export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
-  generator: 'v0.dev',
+const inter = Inter({ subsets: ["latin"] })
+
+export const metadata = {
+  title: "SafeTrack",
+  description: "A caring solution to help you keep track of your loved ones",
 }
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode
-}>) {
+}) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <body className={inter.className} suppressHydrationWarning>
+        {children}
+        <Toaster />
+      </body>
     </html>
   )
 }
