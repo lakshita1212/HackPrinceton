@@ -35,12 +35,19 @@ interface User {
 
 interface KnownPerson {
   id: string
-  user_id: string
+  name: string
+  phone: string
+  relationship: string
+  photo_url: string | null
+  supabase_img_url?: string | null
+  is_emergency_contact: boolean
+  details?: string
+}
+
+interface NewPerson {
   name: string
   relationship: string
-  phone: string
-  photo_url: string | null
-  supabase_img_url: string | null
+  details: string
 }
 
 export default function DashboardPage() {
@@ -55,7 +62,7 @@ export default function DashboardPage() {
     person?: KnownPerson
   } | null>(null)
   const [knownPeople, setKnownPeople] = useState<KnownPerson[]>([])
-  const [newPerson, setNewPerson] = useState({
+  const [newPerson, setNewPerson] = useState<NewPerson>({
     name: "",
     relationship: "",
     details: "",
@@ -122,6 +129,10 @@ export default function DashboardPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const getEmergencyContacts = () => {
+    return knownPeople.filter(person => person.is_emergency_contact)
   }
 
   const startCamera = async () => {
@@ -199,6 +210,7 @@ export default function DashboardPage() {
         phone: "",
         photo_url: capturedImage || null,
         supabase_img_url: capturedImage || null,
+        is_emergency_contact: false
       }
 
       setKnownPeople([...knownPeople, person])
@@ -319,77 +331,86 @@ export default function DashboardPage() {
           </Card>
 
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-2">
               <CardTitle>Patient Information</CardTitle>
               <CardDescription>Details and status</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center space-x-4">
                 <Avatar className="h-16 w-16">
-                  <AvatarImage src={userData?.patient_photo_url || ''} alt="Patient" />
-                  <AvatarFallback>{userData?.patient_name?.charAt(0) || 'P'}</AvatarFallback>
+                  <AvatarImage src={userData?.patient_photo_url || ""} />
+                  <AvatarFallback>{userData?.patient_name?.charAt(0) || "P"}</AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="font-medium">{userData?.patient_name || 'Loading...'}</p>
-                  <p className="text-sm text-muted-foreground">ID: #{userData?.id?.slice(0, 8) || '...'}</p>
+                  <h3 className="font-medium">{userData?.patient_name || "Patient Name"}</h3>
+                  <p className="text-sm text-muted-foreground">ID: #{userData?.id?.slice(-8) || "Unknown"}</p>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <div className="flex justify-between">
-                  <p className="text-sm font-medium">Status:</p>
+                <p className="text-sm font-medium">Status:</p>
+                <div className="flex items-center space-x-2">
                   <Badge
                     variant={
-                      patientStatus === "safe" ? "outline" : patientStatus === "warning" ? "secondary" : "destructive"
+                      patientStatus === "safe" ? "default" : 
+                      patientStatus === "warning" ? "default" : 
+                      "destructive"
                     }
                   >
-                    {patientStatus === "safe" ? "Safe" : patientStatus === "warning" ? "Warning" : "Alert"}
+                    {patientStatus === "safe"
+                      ? "Within Safe Zone"
+                      : patientStatus === "warning"
+                        ? "Near Boundary"
+                        : "Outside Safe Zone"}
                   </Badge>
-                </div>
-                <div className="flex justify-between">
-                  <p className="text-sm font-medium">Base Location:</p>
-                  <p className="text-sm text-right">123 Main St</p>
-                </div>
-                <div className="flex justify-between">
-                  <p className="text-sm font-medium">Safe Radius:</p>
-                  <p className="text-sm">500 meters</p>
                 </div>
               </div>
 
-              <div>
-                <p className="text-sm font-medium mb-2">Emergency Contacts:</p>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Base Location:</p>
+                <p className="text-sm text-muted-foreground">123 Main St</p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Safe Radius:</p>
+                <p className="text-sm text-muted-foreground">500 meters</p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Emergency Contacts:</p>
                 <div className="space-y-2">
-                  {knownPeople
-                    .filter(person => 
-                      person.relationship.toLowerCase().includes('emergency') || 
-                      person.relationship.toLowerCase().includes('doctor')
-                    )
-                    .map(contact => (
-                      <div key={contact.id} className="flex items-center space-x-2">
-                        <Phone className="h-4 w-4 text-muted-foreground" />
-                        <p className="text-sm">{contact.name}: {contact.phone}</p>
+                  {getEmergencyContacts().map((contact) => (
+                    <div key={contact.id} className="flex items-center justify-between p-2 border rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={contact.photo_url || undefined} />
+                          <AvatarFallback>{contact.name.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="text-sm font-medium">{contact.name}</p>
+                          <p className="text-xs text-muted-foreground">{contact.phone}</p>
+                        </div>
                       </div>
-                    ))}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleCallPerson(contact)}
+                        className="h-8 w-8"
+                      >
+                        <Phone className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  {getEmergencyContacts().length === 0 && (
+                    <p className="text-sm text-muted-foreground">No emergency contacts designated</p>
+                  )}
                 </div>
               </div>
+
+              <Button className="w-full" variant="outline" onClick={() => setShowIdentityDialog(true)}>
+                Edit Patient Details
+              </Button>
             </CardContent>
-            <CardFooter>
-              <div className="w-full space-y-2">
-                <Button
-                  className="w-full"
-                  onClick={() =>
-                    setPatientStatus(
-                      patientStatus === "safe" ? "warning" : patientStatus === "warning" ? "alert" : "safe",
-                    )
-                  }
-                >
-                  Simulate Status Change
-                </Button>
-                <Button variant="outline" className="w-full">
-                  Edit Patient Details
-                </Button>
-              </div>
-            </CardFooter>
           </Card>
         </div>
 
@@ -572,8 +593,8 @@ export default function DashboardPage() {
                 <Avatar className="h-16 w-16">
                   <AvatarImage
                     src={
-                      recognitionResult.isRecognized
-                        ? recognitionResult.person?.supabase_img_url
+                      recognitionResult.isRecognized && recognitionResult.person?.supabase_img_url
+                        ? recognitionResult.person.supabase_img_url
                         : capturedImage || "/placeholder.svg"
                     }
                     alt="Person"
@@ -602,7 +623,7 @@ export default function DashboardPage() {
                 </Button>
               ) : (
                 <>
-                  <Alert variant="warning">
+                  <Alert>
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Warning</AlertTitle>
                     <AlertDescription>This person is not in your database. They may be a stranger.</AlertDescription>
