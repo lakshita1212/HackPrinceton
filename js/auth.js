@@ -1,3 +1,4 @@
+// JavaScript for authentication pages (login and register)
 document.addEventListener("DOMContentLoaded", () => {
   // Tab switching functionality
   const tabButtons = document.querySelectorAll(".tab-button")

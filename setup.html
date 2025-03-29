@@ -83,8 +83,55 @@
             </div>
           </div>
           
-          <!-- Step 3: Emergency Contact Information -->
+          <!-- Step 3: Add Known People -->
           <div class="setup-step" id="step-3">
+            <h3>Add Known People</h3>
+            <p class="step-description">Add people the patient knows for the recognition feature</p>
+            
+            <div id="known-people-list" class="known-people-list">
+              <!-- Known people will be added here dynamically -->
+              <div class="empty-state">
+                <i class="fas fa-users"></i>
+                <p>No people added yet. Use the form below to add people the patient knows.</p>
+              </div>
+            </div>
+            
+            <div class="known-person-form">
+              <h4>Add Person</h4>
+              <div class="form-group">
+                <label for="person-name">Name</label>
+                <input type="text" id="person-name" placeholder="Enter person's name">
+              </div>
+              
+              <div class="form-group">
+                <label for="person-relationship">Relationship to Patient</label>
+                <input type="text" id="person-relationship" placeholder="E.g., Daughter, Doctor, Neighbor">
+              </div>
+              
+              <div class="form-group">
+                <label for="person-details">Additional Details</label>
+                <textarea id="person-details" placeholder="E.g., Visits on weekends, Lives nearby, etc."></textarea>
+              </div>
+              
+              <div class="form-group">
+                <label>Photo</label>
+                <div class="upload-box small">
+                  <i class="fas fa-upload"></i>
+                  <p>Upload photo</p>
+                  <input type="file" id="person-photo" class="file-input" accept="image/*">
+                </div>
+                <div id="person-photo-preview" class="photo-preview-small hidden">
+                  <img src="/placeholder.svg" alt="Preview">
+                  <button class="remove-preview" id="remove-person-photo">×</button>
+                </div>
+              </div>
+              
+              <button class="button primary" id="add-person-btn">Add Person</button>
+            </div>
+          </div>
+          
+          <!-- Step 4: Emergency Contact Information -->
+          <div class="setup-step" id="step-4">
             <h3>Emergency Contact Information</h3>
             <p class="step-description">Provide emergency contact details for alerts</p>
             
@@ -118,8 +165,8 @@
             </div>
           </div>
           
-          <!-- Step 4: Review and Confirm -->
-          <div class="setup-step" id="step-4">
+          <!-- Step 5: Review and Confirm -->
+          <div class="setup-step" id="step-5">
             <h3>Review and Confirm</h3>
             <p class="step-description">Please review the information below before finalizing setup</p>
             
@@ -159,6 +206,12 @@
                   <p>Photo 2</p>
                 </div>
               </div>
+              
+              <div class="known-people-summary">
+                <h4>Known People</h4>
+                <p id="known-people-count">0 people added</p>
+                <button class="button secondary small" id="view-known-people-btn">View List</button>
+              </div>
             </div>
             
             <div class="form-group checkbox">
@@ -173,6 +226,24 @@
           <button class="button secondary" id="prev-step" disabled>Back</button>
           <button class="button primary" id="next-step">Continue</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Known People Modal -->
+  <div class="modal" id="known-people-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Known People List</h2>
+        <button class="close-button" id="close-known-people-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="modal-known-people-list" class="known-people-grid">
+          <!-- Known people will be displayed here -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="button secondary" id="close-modal-btn">Close</button>
       </div>
     </div>
   </div>

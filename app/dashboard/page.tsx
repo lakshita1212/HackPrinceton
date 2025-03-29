@@ -1,12 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { MapPin, Phone, User, Clock, Home } from "lucide-react"
+import { MapPin, Phone, User, Clock, Home, Camera, Upload, CheckCircle, AlertTriangle, UserPlus } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -15,10 +15,178 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+
+// Mock database of known people
+const initialKnownPeople = [
+  {
+    id: 1,
+    name: "Jane Smith",
+    relationship: "Daughter",
+    details: "Lives nearby and visits on weekends",
+    imageUrl: "/placeholder.svg"
+  },
+  {
+    id: 2,
+    name: "Robert Johnson",
+    relationship: "Son",
+    details: "Lives in the city and visits monthly",
+    imageUrl: "/placeholder.svg"
+  },
+  {
+    id: 3,
+    name: "Dr. Williams",
+    relationship: "Doctor",
+    details: "Visits every Tuesday for check-ups",
+    imageUrl: "/placeholder.svg"
+  }
+];
 
 export default function DashboardPage() {
   const [patientStatus, setPatientStatus] = useState("safe") // safe, warning, alert
   const [showIdentityDialog, setShowIdentityDialog] = useState(false)
+  const [showRecognitionDialog, setShowRecognitionDialog] = useState(false)
+  const [showAddPersonDialog, setShowAddPersonDialog] = useState(false)
+  const [capturedImage, setCapturedImage] = useState<string | null>(null)
+  const [isUsingCamera, setIsUsingCamera] = useState(false)
+  const [recognitionResult, setRecognitionResult] = useState<{
+    isRecognized: boolean;
+    person?: typeof initialKnownPeople[0];
+  } | null>(null)
+  const [knownPeople, setKnownPeople] = useState(initialKnownPeople)
+  const [newPerson, setNewPerson] = useState({
+    name: "",
+    relationship: "",
+    details: ""
+  })
+  
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  
+  // Load known people from localStorage on component mount
+  useEffect(() => {
+    const storedPeople = localStorage.getItem('knownPeople')
+    if (storedPeople) {
+      try {
+        setKnownPeople(JSON.parse(storedPeople))
+      } catch (e) {
+        console.error("Error parsing stored people:", e)
+      }
+    }
+  }, [])
+  
+  // Save known people to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('knownPeople', JSON.stringify(knownPeople))
+  }, [knownPeople])
+  
+  // Clean up camera stream when component unmounts
+  useEffect(() => {
+    return () => {
+      stopCamera()
+    }
+  }, [])
+  
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+      }
+      streamRef.current = stream
+      setIsUsingCamera(true)
+    } catch (err) {
+      console.error('Error accessing camera:', err)
+      alert('Could not access camera. Please check permissions or try uploading a photo instead.')
+    }
+  }
+  
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current = null
+    }
+    setIsUsingCamera(false)
+  }
+  
+  const capturePhoto = () => {
+    if (videoRef.current) {
+      const canvas = document.createElement('canvas')
+      canvas.width = videoRef.current.videoWidth
+      canvas.height = videoRef.current.videoHeight
+      canvas.getContext('2d')?.drawImage(videoRef.current, 0, 0)
+      const image = canvas.toDataURL('image/png')
+      setCapturedImage(image)
+      stopCamera()
+    }
+  }
+  
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setCapturedImage(event.target.result as string)
+        }
+      }
+      reader.readAsDataURL(e.target.files[0])
+    }
+  }
+  
+  const recognizePerson = () => {
+    // In a real app, this would use a face recognition API
+    // For this demo, we'll simulate recognition with a random result
+    const isRecognized = Math.random() > 0.3 // 70% chance of recognition for demo
+    
+    if (isRecognized && knownPeople.length > 0) {
+      // Randomly select a known person for demo purposes
+      const randomPerson = knownPeople[Math.floor(Math.random() * knownPeople.length)]
+      setRecognitionResult({
+        isRecognized: true,
+        person: randomPerson
+      })
+    } else {
+      setRecognitionResult({
+        isRecognized: false
+      })
+    }
+  }
+  
+  const handleAddPerson = () => {
+    if (newPerson.name && newPerson.relationship) {
+      const person = {
+        id: Date.now(),
+        name: newPerson.name,
+        relationship: newPerson.relationship,
+        details: newPerson.details,
+        imageUrl: capturedImage || "/placeholder.svg"
+      }
+      
+      setKnownPeople([...knownPeople, person])
+      setRecognitionResult({
+        isRecognized: true,
+        person
+      })
+      setShowAddPersonDialog(false)
+      setNewPerson({ name: "", relationship: "", details: "" })
+    }
+  }
+  
+  const resetRecognition = () => {
+    setCapturedImage(null)
+    setRecognitionResult(null)
+  }
 
   return (
     <div className="container py-6">
@@ -31,6 +199,13 @@ export default function DashboardPage() {
           <div className="flex items-center space-x-2">
             <Button variant="outline" size="sm" onClick={() => setShowIdentityDialog(true)}>
               <User className="mr-2 h-4 w-4" />
+              Who am I?
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => {
+              setShowRecognitionDialog(true)
+              resetRecognition()
+            }}>
+              <UserPlus className="mr-2 h-4 w-4" />
               Who is this?
             </Button>
             <Button variant="outline" size="sm">
@@ -201,6 +376,7 @@ export default function DashboardPage() {
         </Card>
       </div>
 
+      {/* Who am I Dialog */}
       <Dialog open={showIdentityDialog} onOpenChange={setShowIdentityDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -237,7 +413,198 @@ export default function DashboardPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Who is this Dialog */}
+      <Dialog open={showRecognitionDialog} onOpenChange={(open) => {
+        if (!open) stopCamera();
+        setShowRecognitionDialog(open);
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Who is this person?</DialogTitle>
+            <DialogDescription>
+              Take a photo or upload an image of the person you want to identify
+            </DialogDescription>
+          </DialogHeader>
+          
+          {!capturedImage && !recognitionResult && (
+            <div className="flex flex-col space-y-4">
+              {isUsingCamera ? (
+                <div className="relative border rounded-lg overflow-hidden">
+                  <video ref={videoRef} autoPlay playsInline className="w-full h-64 object-cover" />
+                  <div className="absolute bottom-2 left-0 right-0 flex justify-center space-x-2">
+                    <Button onClick={capturePhoto}>
+                      <Camera className="mr-2 h-4 w-4" />
+                      Capture
+                    </Button>
+                    <Button variant="outline" onClick={() => {
+                      stopCamera();
+                      setIsUsingCamera(false);
+                    }}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex justify-center space-x-4">
+                  <Button onClick={startCamera}>
+                    <Camera className="mr-2 h-4 w-4" />
+                    Take Photo
+                  </Button>
+                  <div className="relative">
+                    <Button variant="outline" onClick={() => document.getElementById('upload-photo')?.click()}>
+                      <Upload className="mr-2 h-4 w-4" />
+                      Upload Photo
+                    </Button>
+                    <input 
+                      type="file" 
+                      id="upload-photo" 
+                      className="sr-only" 
+                      accept="image/*"
+                      onChange={handleFileUpload}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {capturedImage && !recognitionResult && (
+            <div className="flex flex-col space-y-4">
+              <div className="border rounded-lg overflow-hidden">
+                <img src={capturedImage || "/placeholder.svg"} alt="Preview" className="w-full h-64 object-cover" />
+              </div>
+              <div className="flex justify-center space-x-2">
+                <Button onClick={recognizePerson}>
+                  <User className="mr-2 h-4 w-4" />
+                  Identify Person
+                </Button>
+                <Button variant="outline" onClick={resetRecognition}>
+                  Try Again
+                </Button>
+              </div>
+            </div>
+          )}
+          
+          {recognitionResult && (
+            <div className="flex flex-col space-y-4">
+              <div className="flex items-center justify-center">
+                {recognitionResult.isRecognized ? (
+                  <CheckCircle className="h-12 w-12 text-green-500 mb-2" />
+                ) : (
+                  <AlertTriangle className="h-12 w-12 text-amber-500 mb-2" />
+                )}
+              </div>
+              <h3 className="text-xl font-semibold text-center">
+                {recognitionResult.isRecognized ? 'Person Identified!' : 'Stranger Alert'}
+              </h3>
+              
+              <div className="flex items-center space-x-4 border rounded-lg p-4">
+                <Avatar className="h-16 w-16">
+                  <AvatarImage 
+                    src={recognitionResult.isRecognized ? recognitionResult.person?.imageUrl : capturedImage || "/placeholder.svg"} 
+                    alt="Person" 
+                  />
+                  <AvatarFallback>
+                    {recognitionResult.isRecognized ? recognitionResult.person?.name.charAt(0) : '?'}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <p className="font-medium">
+                    {recognitionResult.isRecognized ? recognitionResult.person?.name : 'Unknown Person'}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {recognitionResult.isRecognized ? recognitionResult.person?.relationship : 'Not in your database'}
+                  </p>
+                  {recognitionResult.isRecognized && recognitionResult.person?.details && (
+                    <p className="text-sm mt-1">{recognitionResult.person.details}</p>
+                  )}
+                </div>
+              </div>
+              
+              {recognitionResult.isRecognized ? (
+                <Button>
+                  <Phone className="mr-2 h-4 w-4" />
+                  Call This Person
+                </Button>
+              ) : (
+                <>
+                  <Alert variant="warning">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Warning</AlertTitle>
+                    <AlertDescription>
+                      This person is not in your database. They may be a stranger.
+                    </AlertDescription>
+                  </Alert>
+                  <Button variant="outline" onClick={() => setShowAddPersonDialog(true)}>
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    Add to Known People
+                  </Button>
+                </>
+              )}
+              
+              <Button variant="outline" onClick={resetRecognition}>
+                Try Again
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      
+      {/* Add Person Dialog */}
+      <Dialog open={showAddPersonDialog} onOpenChange={setShowAddPersonDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Person</DialogTitle>
+            <DialogDescription>
+              Add this person to your known people database
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex flex-col space-y-4 py-4">
+            <div className="flex justify-center">
+              <Avatar className="h-24 w-24">
+                <AvatarImage src={capturedImage || "/placeholder.svg"} alt="New person" />
+                <AvatarFallback>NP</AvatarFallback>
+              </Avatar>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <FormLabel>Name</FormLabel>
+                <Input 
+                  placeholder="Enter name" 
+                  value={newPerson.name}
+                  onChange={(e) => setNewPerson({...newPerson, name: e.target.value})}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <FormLabel>Relationship</FormLabel>
+                <Input 
+                  placeholder="Enter relationship" 
+                  value={newPerson.relationship}
+                  onChange={(e) => setNewPerson({...newPerson, relationship: e.target.value})}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <FormLabel>Additional Details</FormLabel>
+                <Textarea 
+                  placeholder="Enter additional details" 
+                  value={newPerson.details}
+                  onChange={(e) => setNewPerson({...newPerson, details: e.target.value})}
+                />
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddPersonDialog(false)}>Cancel</Button>
+            <Button onClick={handleAddPerson}>Save Person</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
-

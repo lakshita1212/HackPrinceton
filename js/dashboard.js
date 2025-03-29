@@ -1,3 +1,4 @@
+// JavaScript for the dashboard page
 document.addEventListener("DOMContentLoaded", () => {
   // Tab switching functionality
   const tabButtons = document.querySelectorAll(".tab-button")
