@@ -1,12 +1,15 @@
 "use client"
 
+import type React from "react"
+
 import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { MapPin, Phone, User, Clock, Home, Camera, Upload, CheckCircle, AlertTriangle, UserPlus } from 'lucide-react'
+import { Phone, User, Clock, Camera, Upload, CheckCircle, AlertTriangle, UserPlus } from "lucide-react"
+import MapComponent from "./MapComponent"
 import {
   Dialog,
   DialogContent,
@@ -15,15 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form"
+import { FormLabel } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -35,23 +30,23 @@ const initialKnownPeople = [
     name: "Jane Smith",
     relationship: "Daughter",
     details: "Lives nearby and visits on weekends",
-    imageUrl: "/placeholder.svg"
+    imageUrl: "/placeholder.svg",
   },
   {
     id: 2,
     name: "Robert Johnson",
     relationship: "Son",
     details: "Lives in the city and visits monthly",
-    imageUrl: "/placeholder.svg"
+    imageUrl: "/placeholder.svg",
   },
   {
     id: 3,
     name: "Dr. Williams",
     relationship: "Doctor",
     details: "Visits every Tuesday for check-ups",
-    imageUrl: "/placeholder.svg"
-  }
-];
+    imageUrl: "/placeholder.svg",
+  },
+]
 
 export default function DashboardPage() {
   const [patientStatus, setPatientStatus] = useState("safe") // safe, warning, alert
@@ -61,22 +56,23 @@ export default function DashboardPage() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const [isUsingCamera, setIsUsingCamera] = useState(false)
   const [recognitionResult, setRecognitionResult] = useState<{
-    isRecognized: boolean;
-    person?: typeof initialKnownPeople[0];
+    isRecognized: boolean
+    person?: (typeof initialKnownPeople)[0]
   } | null>(null)
   const [knownPeople, setKnownPeople] = useState(initialKnownPeople)
   const [newPerson, setNewPerson] = useState({
     name: "",
     relationship: "",
-    details: ""
+    details: "",
   })
-  
+  const [currentDistance, setCurrentDistance] = useState(320)
+
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
-  
+
   // Load known people from localStorage on component mount
   useEffect(() => {
-    const storedPeople = localStorage.getItem('knownPeople')
+    const storedPeople = localStorage.getItem("knownPeople")
     if (storedPeople) {
       try {
         setKnownPeople(JSON.parse(storedPeople))
@@ -85,19 +81,19 @@ export default function DashboardPage() {
       }
     }
   }, [])
-  
+
   // Save known people to localStorage when it changes
   useEffect(() => {
-    localStorage.setItem('knownPeople', JSON.stringify(knownPeople))
+    localStorage.setItem("knownPeople", JSON.stringify(knownPeople))
   }, [knownPeople])
-  
+
   // Clean up camera stream when component unmounts
   useEffect(() => {
     return () => {
       stopCamera()
     }
   }, [])
-  
+
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true })
@@ -107,31 +103,31 @@ export default function DashboardPage() {
       streamRef.current = stream
       setIsUsingCamera(true)
     } catch (err) {
-      console.error('Error accessing camera:', err)
-      alert('Could not access camera. Please check permissions or try uploading a photo instead.')
+      console.error("Error accessing camera:", err)
+      alert("Could not access camera. Please check permissions or try uploading a photo instead.")
     }
   }
-  
+
   const stopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current.getTracks().forEach((track) => track.stop())
       streamRef.current = null
     }
     setIsUsingCamera(false)
   }
-  
+
   const capturePhoto = () => {
     if (videoRef.current) {
-      const canvas = document.createElement('canvas')
+      const canvas = document.createElement("canvas")
       canvas.width = videoRef.current.videoWidth
       canvas.height = videoRef.current.videoHeight
-      canvas.getContext('2d')?.drawImage(videoRef.current, 0, 0)
-      const image = canvas.toDataURL('image/png')
+      canvas.getContext("2d")?.drawImage(videoRef.current, 0, 0)
+      const image = canvas.toDataURL("image/png")
       setCapturedImage(image)
       stopCamera()
     }
   }
-  
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const reader = new FileReader()
@@ -143,26 +139,26 @@ export default function DashboardPage() {
       reader.readAsDataURL(e.target.files[0])
     }
   }
-  
+
   const recognizePerson = () => {
     // In a real app, this would use a face recognition API
     // For this demo, we'll simulate recognition with a random result
     const isRecognized = Math.random() > 0.3 // 70% chance of recognition for demo
-    
+
     if (isRecognized && knownPeople.length > 0) {
       // Randomly select a known person for demo purposes
       const randomPerson = knownPeople[Math.floor(Math.random() * knownPeople.length)]
       setRecognitionResult({
         isRecognized: true,
-        person: randomPerson
+        person: randomPerson,
       })
     } else {
       setRecognitionResult({
-        isRecognized: false
+        isRecognized: false,
       })
     }
   }
-  
+
   const handleAddPerson = () => {
     if (newPerson.name && newPerson.relationship) {
       const person = {
@@ -170,22 +166,32 @@ export default function DashboardPage() {
         name: newPerson.name,
         relationship: newPerson.relationship,
         details: newPerson.details,
-        imageUrl: capturedImage || "/placeholder.svg"
+        imageUrl: capturedImage || "/placeholder.svg",
       }
-      
+
       setKnownPeople([...knownPeople, person])
       setRecognitionResult({
         isRecognized: true,
-        person
+        person,
       })
       setShowAddPersonDialog(false)
       setNewPerson({ name: "", relationship: "", details: "" })
     }
   }
-  
+
   const resetRecognition = () => {
     setCapturedImage(null)
     setRecognitionResult(null)
+  }
+
+  const handleEmergencyCall = () => {
+    alert("Emergency call initiated. Contacting caretaker...")
+    // In a real app, this would initiate a call or send an alert
+  }
+
+  const handleCallPerson = (person: any) => {
+    alert(`Calling ${person?.name}...`)
+    // In a real app, this would initiate a call
   }
 
   return (
@@ -201,14 +207,18 @@ export default function DashboardPage() {
               <User className="mr-2 h-4 w-4" />
               Who am I?
             </Button>
-            <Button variant="outline" size="sm" onClick={() => {
-              setShowRecognitionDialog(true)
-              resetRecognition()
-            }}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShowRecognitionDialog(true)
+                resetRecognition()
+              }}
+            >
               <UserPlus className="mr-2 h-4 w-4" />
               Who is this?
             </Button>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" onClick={handleEmergencyCall}>
               <Phone className="mr-2 h-4 w-4" />
               Emergency Call
             </Button>
@@ -235,29 +245,32 @@ export default function DashboardPage() {
               <CardDescription>Current location and movement history</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="border rounded-lg p-4 h-[400px] bg-muted flex items-center justify-center">
-                <div className="text-center">
-                  <MapPin className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground">Map showing patient location will be displayed here</p>
-                  <div className="mt-2 flex justify-center space-x-2">
-                    <Button variant="outline" size="sm">
-                      <Home className="mr-2 h-4 w-4" />
-                      Show Base Location
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      <MapPin className="mr-2 h-4 w-4" />
-                      Center on Patient
-                    </Button>
-                  </div>
+              <div className="border rounded-lg overflow-hidden h-[400px]">
+                <div className="relative w-full h-full">
+                  <MapComponent
+                    onLocationUpdate={(location) => {
+                      // Update patient status based on distance from base
+                      const distance = location.distance
+                      setCurrentDistance(distance)
+                      if (distance > 500) {
+                        setPatientStatus("alert")
+                      } else if (distance > 400) {
+                        setPatientStatus("warning")
+                      } else {
+                        setPatientStatus("safe")
+                      }
+                    }}
+                    safeRadius={500}
+                  />
                 </div>
               </div>
               <div className="mt-4 flex justify-between items-center">
                 <div className="flex items-center space-x-2">
                   <Clock className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Last updated: 2 minutes ago</span>
+                  <span className="text-sm text-muted-foreground">Last updated: {new Date().toLocaleTimeString()}</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <span className="text-sm">Distance from base: 320m</span>
+                  <span className="text-sm">Distance from base: {Math.round(currentDistance)}m</span>
                   <Badge variant="outline">Safe radius: 500m</Badge>
                 </div>
               </div>
@@ -406,7 +419,13 @@ export default function DashboardPage() {
             </div>
           </DialogHeader>
           <DialogFooter>
-            <Button className="w-full" onClick={() => setShowIdentityDialog(false)}>
+            <Button
+              className="w-full"
+              onClick={() => {
+                setShowIdentityDialog(false)
+                handleEmergencyCall()
+              }}
+            >
               <Phone className="mr-2 h-4 w-4" />
               Call Caretaker
             </Button>
@@ -415,18 +434,19 @@ export default function DashboardPage() {
       </Dialog>
 
       {/* Who is this Dialog */}
-      <Dialog open={showRecognitionDialog} onOpenChange={(open) => {
-        if (!open) stopCamera();
-        setShowRecognitionDialog(open);
-      }}>
+      <Dialog
+        open={showRecognitionDialog}
+        onOpenChange={(open) => {
+          if (!open) stopCamera()
+          setShowRecognitionDialog(open)
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Who is this person?</DialogTitle>
-            <DialogDescription>
-              Take a photo or upload an image of the person you want to identify
-            </DialogDescription>
+            <DialogDescription>Take a photo or upload an image of the person you want to identify</DialogDescription>
           </DialogHeader>
-          
+
           {!capturedImage && !recognitionResult && (
             <div className="flex flex-col space-y-4">
               {isUsingCamera ? (
@@ -437,10 +457,13 @@ export default function DashboardPage() {
                       <Camera className="mr-2 h-4 w-4" />
                       Capture
                     </Button>
-                    <Button variant="outline" onClick={() => {
-                      stopCamera();
-                      setIsUsingCamera(false);
-                    }}>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        stopCamera()
+                        setIsUsingCamera(false)
+                      }}
+                    >
                       Cancel
                     </Button>
                   </div>
@@ -452,14 +475,14 @@ export default function DashboardPage() {
                     Take Photo
                   </Button>
                   <div className="relative">
-                    <Button variant="outline" onClick={() => document.getElementById('upload-photo')?.click()}>
+                    <Button variant="outline" onClick={() => document.getElementById("upload-photo")?.click()}>
                       <Upload className="mr-2 h-4 w-4" />
                       Upload Photo
                     </Button>
-                    <input 
-                      type="file" 
-                      id="upload-photo" 
-                      className="sr-only" 
+                    <input
+                      type="file"
+                      id="upload-photo"
+                      className="sr-only"
                       accept="image/*"
                       onChange={handleFileUpload}
                     />
@@ -468,7 +491,7 @@ export default function DashboardPage() {
               )}
             </div>
           )}
-          
+
           {capturedImage && !recognitionResult && (
             <div className="flex flex-col space-y-4">
               <div className="border rounded-lg overflow-hidden">
@@ -485,7 +508,7 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
-          
+
           {recognitionResult && (
             <div className="flex flex-col space-y-4">
               <div className="flex items-center justify-center">
@@ -496,34 +519,38 @@ export default function DashboardPage() {
                 )}
               </div>
               <h3 className="text-xl font-semibold text-center">
-                {recognitionResult.isRecognized ? 'Person Identified!' : 'Stranger Alert'}
+                {recognitionResult.isRecognized ? "Person Identified!" : "Stranger Alert"}
               </h3>
-              
+
               <div className="flex items-center space-x-4 border rounded-lg p-4">
                 <Avatar className="h-16 w-16">
-                  <AvatarImage 
-                    src={recognitionResult.isRecognized ? recognitionResult.person?.imageUrl : capturedImage || "/placeholder.svg"} 
-                    alt="Person" 
+                  <AvatarImage
+                    src={
+                      recognitionResult.isRecognized
+                        ? recognitionResult.person?.imageUrl
+                        : capturedImage || "/placeholder.svg"
+                    }
+                    alt="Person"
                   />
                   <AvatarFallback>
-                    {recognitionResult.isRecognized ? recognitionResult.person?.name.charAt(0) : '?'}
+                    {recognitionResult.isRecognized ? recognitionResult.person?.name.charAt(0) : "?"}
                   </AvatarFallback>
                 </Avatar>
                 <div>
                   <p className="font-medium">
-                    {recognitionResult.isRecognized ? recognitionResult.person?.name : 'Unknown Person'}
+                    {recognitionResult.isRecognized ? recognitionResult.person?.name : "Unknown Person"}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {recognitionResult.isRecognized ? recognitionResult.person?.relationship : 'Not in your database'}
+                    {recognitionResult.isRecognized ? recognitionResult.person?.relationship : "Not in your database"}
                   </p>
                   {recognitionResult.isRecognized && recognitionResult.person?.details && (
                     <p className="text-sm mt-1">{recognitionResult.person.details}</p>
                   )}
                 </div>
               </div>
-              
+
               {recognitionResult.isRecognized ? (
-                <Button>
+                <Button onClick={() => recognitionResult?.person && handleCallPerson(recognitionResult.person)}>
                   <Phone className="mr-2 h-4 w-4" />
                   Call This Person
                 </Button>
@@ -532,9 +559,7 @@ export default function DashboardPage() {
                   <Alert variant="warning">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Warning</AlertTitle>
-                    <AlertDescription>
-                      This person is not in your database. They may be a stranger.
-                    </AlertDescription>
+                    <AlertDescription>This person is not in your database. They may be a stranger.</AlertDescription>
                   </Alert>
                   <Button variant="outline" onClick={() => setShowAddPersonDialog(true)}>
                     <UserPlus className="mr-2 h-4 w-4" />
@@ -542,7 +567,7 @@ export default function DashboardPage() {
                   </Button>
                 </>
               )}
-              
+
               <Button variant="outline" onClick={resetRecognition}>
                 Try Again
               </Button>
@@ -550,17 +575,15 @@ export default function DashboardPage() {
           )}
         </DialogContent>
       </Dialog>
-      
+
       {/* Add Person Dialog */}
       <Dialog open={showAddPersonDialog} onOpenChange={setShowAddPersonDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add New Person</DialogTitle>
-            <DialogDescription>
-              Add this person to your known people database
-            </DialogDescription>
+            <DialogDescription>Add this person to your known people database</DialogDescription>
           </DialogHeader>
-          
+
           <div className="flex flex-col space-y-4 py-4">
             <div className="flex justify-center">
               <Avatar className="h-24 w-24">
@@ -568,39 +591,41 @@ export default function DashboardPage() {
                 <AvatarFallback>NP</AvatarFallback>
               </Avatar>
             </div>
-            
+
             <div className="space-y-4">
               <div className="space-y-2">
                 <FormLabel>Name</FormLabel>
-                <Input 
-                  placeholder="Enter name" 
+                <Input
+                  placeholder="Enter name"
                   value={newPerson.name}
-                  onChange={(e) => setNewPerson({...newPerson, name: e.target.value})}
+                  onChange={(e) => setNewPerson({ ...newPerson, name: e.target.value })}
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <FormLabel>Relationship</FormLabel>
-                <Input 
-                  placeholder="Enter relationship" 
+                <Input
+                  placeholder="Enter relationship"
                   value={newPerson.relationship}
-                  onChange={(e) => setNewPerson({...newPerson, relationship: e.target.value})}
+                  onChange={(e) => setNewPerson({ ...newPerson, relationship: e.target.value })}
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <FormLabel>Additional Details</FormLabel>
-                <Textarea 
-                  placeholder="Enter additional details" 
+                <Textarea
+                  placeholder="Enter additional details"
                   value={newPerson.details}
-                  onChange={(e) => setNewPerson({...newPerson, details: e.target.value})}
+                  onChange={(e) => setNewPerson({ ...newPerson, details: e.target.value })}
                 />
               </div>
             </div>
           </div>
-          
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddPersonDialog(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setShowAddPersonDialog(false)}>
+              Cancel
+            </Button>
             <Button onClick={handleAddPerson}>Save Person</Button>
           </DialogFooter>
         </DialogContent>
@@ -608,3 +633,4 @@ export default function DashboardPage() {
     </div>
   )
 }
+
