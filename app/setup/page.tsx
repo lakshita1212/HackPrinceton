@@ -32,6 +32,15 @@ interface KnownPerson {
   photo_url: string
   supabase_img_url: string | null
   phone: number
+  user_id: string
+}
+
+interface User {
+  id: string
+  email: string
+  patient_name: string
+  patient_photo_url: string | null
+  patient_side_photo_url: string | null
 }
 
 export default function SetupPage() {
@@ -42,12 +51,14 @@ export default function SetupPage() {
   const [showKnownPeopleModal, setShowKnownPeopleModal] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
 
   // Form states
   const [personName, setPersonName] = useState("")
   const [personRelationship, setPersonRelationship] = useState("")
   const [personDetails, setPersonDetails] = useState("")
   const [personPhotoURL, setPersonPhotoURL] = useState("")
+  const [patientName, setPatientName] = useState("")
   const [patientPhotos, setPatientPhotos] = useState<{front?: string, side?: string}>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
   const frontPhotoRef = useRef<HTMLInputElement>(null)
@@ -55,17 +66,51 @@ export default function SetupPage() {
   const [personAddress, setPersonAddress] = useState("")
   const [personPhone, setPersonPhone] = useState("")
 
-  // Load known people from Supabase on component mount
+  // Load current user and their data on component mount
   useEffect(() => {
-    loadKnownPeople()
+    loadCurrentUser()
   }, [])
 
-  const loadKnownPeople = async () => {
+  const loadCurrentUser = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        router.push('/login')
+        return
+      }
+
+      // Get user data from users table
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .single()
+
+      if (userError) throw userError
+
+      if (userData) {
+        setCurrentUser(userData)
+        setPatientName(userData.patient_name || '')
+        setPatientPhotos({
+          front: userData.patient_photo_url || undefined,
+          side: userData.patient_side_photo_url || undefined
+        })
+        loadKnownPeople(user.id)
+      }
+    } catch (error) {
+      console.error('Error loading user:', error)
+      toast.error('Failed to load user data')
+    }
+  }
+
+  const loadKnownPeople = async (userId: string) => {
     setIsLoading(true)
     try {
       const { data, error } = await supabase
         .from('Known_People')
         .select('*')
+        .eq('user_id', userId)
       
       if (error) {
         console.error('Supabase error:', error)
@@ -89,20 +134,30 @@ export default function SetupPage() {
       setStep(step + 1)
       setProgress((step + 1) * 20)
     } else {
+      if (!currentUser) return
+
       setIsLoading(true)
       try {
-        // First, delete all existing records
+        // Update user's patient name
+        const { error: userError } = await supabase
+          .from('users')
+          .update({ patient_name: patientName })
+          .eq('id', currentUser.id)
+
+        if (userError) throw userError
+
+        // Delete all existing records for this user
         const { error: deleteError } = await supabase
           .from('Known_People')
           .delete()
-          .neq('id', 0) // This will delete all records
+          .eq('user_id', currentUser.id)
 
         if (deleteError) {
           console.error('Error deleting existing records:', deleteError)
           throw deleteError
         }
 
-        // Then insert all new records
+        // Insert all new records
         const { error: insertError } = await supabase
           .from('Known_People')
           .insert(knownPeople.map(person => ({
@@ -119,7 +174,7 @@ export default function SetupPage() {
         toast.success('Setup completed successfully!')
         router.push("/dashboard")
       } catch (error: any) {
-        console.error('Error saving known people:', error.message || error)
+        console.error('Error saving data:', error.message || error)
         toast.error(`Failed to save data: ${error.message || 'Unknown error'}`)
       } finally {
         setIsLoading(false)
@@ -165,7 +220,7 @@ export default function SetupPage() {
   }
 
   const handleAddPerson = async () => {
-    if (!personName || !personRelationship || !personAddress || !personPhone) {
+    if (!personName || !personRelationship || !personAddress || !personPhone || !currentUser) {
       toast.error("Please fill in all required fields")
       return
     }
@@ -174,16 +229,10 @@ export default function SetupPage() {
     let supabaseImageUrl = ""
     
     try {
-      // If there's a photo URL (from file input) and it's a data URL (not already uploaded)
       if (personPhotoURL && personPhotoURL.startsWith("data:")) {
-        // Convert data URL to blob
         const response = await fetch(personPhotoURL)
         const blob = await response.blob()
-        
-        // Convert blob to File
         const file = new File([blob], "photo.jpg", { type: "image/jpeg" })
-        
-        // Upload to Supabase
         supabaseImageUrl = await handleUploadToSupabase(file)
       }
 
@@ -195,7 +244,8 @@ export default function SetupPage() {
         address: personAddress,
         photo_url: personPhotoURL || `/placeholder.svg?height=150&width=150&text=${personName.charAt(0)}`,
         supabase_img_url: supabaseImageUrl || null,
-        phone: parseInt(personPhone) || 0
+        phone: parseInt(personPhone) || 0,
+        user_id: currentUser.id
       }
 
       // Insert directly into Supabase
@@ -265,6 +315,8 @@ export default function SetupPage() {
   }
 
   const handlePatientPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'front' | 'side') => {
+    if (!currentUser) return
+
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0]
       const downloadURL = await handleUploadToSupabase(file)
@@ -273,6 +325,18 @@ export default function SetupPage() {
         ...prev,
         [type]: downloadURL
       }))
+
+      // Update user's photo in the database
+      const updateField = type === 'front' ? 'patient_photo_url' : 'patient_side_photo_url'
+      const { error } = await supabase
+        .from('users')
+        .update({ [updateField]: downloadURL })
+        .eq('id', currentUser.id)
+
+      if (error) {
+        console.error('Error updating patient photo:', error)
+        toast.error('Failed to update patient photo')
+      }
     }
   }
 
@@ -303,20 +367,63 @@ export default function SetupPage() {
               <h3 className="text-lg font-medium">Upload Patient Photos</h3>
               <p className="text-muted-foreground">Upload clear photos of the patient to help with identification</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center h-40 cursor-pointer hover:border-primary">
-                  <Upload className="h-10 w-10 text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground">Upload front-facing photo</p>
-                  <input type="file" className="hidden" accept="image/*" ref={frontPhotoRef} onChange={(e) => handlePatientPhotoChange(e, 'front')} />
+                <div 
+                  className="border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center h-40 cursor-pointer hover:border-primary"
+                  onClick={() => frontPhotoRef.current?.click()}
+                >
+                  {patientPhotos.front ? (
+                    <img 
+                      src={patientPhotos.front} 
+                      alt="Front-facing preview" 
+                      className="h-full w-full object-cover rounded"
+                    />
+                  ) : (
+                    <>
+                      <Upload className="h-10 w-10 text-muted-foreground mb-2" />
+                      <p className="text-sm text-muted-foreground">Upload front-facing photo</p>
+                    </>
+                  )}
+                  <input 
+                    type="file" 
+                    className="hidden" 
+                    accept="image/*" 
+                    ref={frontPhotoRef}
+                    onChange={(e) => handlePatientPhotoChange(e, 'front')}
+                  />
                 </div>
-                <div className="border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center h-40 cursor-pointer hover:border-primary">
-                  <Upload className="h-10 w-10 text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground">Upload side-profile photo</p>
-                  <input type="file" className="hidden" accept="image/*" ref={sidePhotoRef} onChange={(e) => handlePatientPhotoChange(e, 'side')} />
+                <div 
+                  className="border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center h-40 cursor-pointer hover:border-primary"
+                  onClick={() => sidePhotoRef.current?.click()}
+                >
+                  {patientPhotos.side ? (
+                    <img 
+                      src={patientPhotos.side} 
+                      alt="Side-profile preview" 
+                      className="h-full w-full object-cover rounded"
+                    />
+                  ) : (
+                    <>
+                      <Upload className="h-10 w-10 text-muted-foreground mb-2" />
+                      <p className="text-sm text-muted-foreground">Upload side-profile photo</p>
+                    </>
+                  )}
+                  <input 
+                    type="file" 
+                    className="hidden" 
+                    accept="image/*" 
+                    ref={sidePhotoRef}
+                    onChange={(e) => handlePatientPhotoChange(e, 'side')}
+                  />
                 </div>
               </div>
               <div className="space-y-2 mt-4">
                 <Label htmlFor="patient-name">Patient Name</Label>
-                <Input id="patient-name" placeholder="Enter patient's full name" />
+                <Input 
+                  id="patient-name" 
+                  placeholder="Enter patient's full name"
+                  value={patientName}
+                  onChange={(e) => setPatientName(e.target.value)}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="relationship">Your Relationship to Patient</Label>
@@ -549,7 +656,7 @@ export default function SetupPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <p className="text-sm font-medium">Patient Name:</p>
-                    <p className="text-sm text-muted-foreground">John Doe</p>
+                    <p className="text-sm text-muted-foreground">{patientName}</p>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Relationship:</p>

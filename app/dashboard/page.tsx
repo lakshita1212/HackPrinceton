@@ -22,31 +22,26 @@ import { FormLabel } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { useRouter } from "next/navigation"
+import { supabase } from "../supabaseConfig"
+import { toast } from "sonner"
 
-// Mock database of known people
-const initialKnownPeople = [
-  {
-    id: 1,
-    name: "Jane Smith",
-    relationship: "Daughter",
-    details: "Lives nearby and visits on weekends",
-    imageUrl: "/placeholder.svg",
-  },
-  {
-    id: 2,
-    name: "Robert Johnson",
-    relationship: "Son",
-    details: "Lives in the city and visits monthly",
-    imageUrl: "/placeholder.svg",
-  },
-  {
-    id: 3,
-    name: "Dr. Williams",
-    relationship: "Doctor",
-    details: "Visits every Tuesday for check-ups",
-    imageUrl: "/placeholder.svg",
-  },
-]
+interface User {
+  id: string
+  email: string
+  patient_name: string
+  patient_photo_url: string | null
+}
+
+interface KnownPerson {
+  id: string
+  user_id: string
+  name: string
+  relationship: string
+  phone: string
+  photo_url: string | null
+  supabase_img_url: string | null
+}
 
 export default function DashboardPage() {
   const [patientStatus, setPatientStatus] = useState("safe") // safe, warning, alert
@@ -57,42 +52,77 @@ export default function DashboardPage() {
   const [isUsingCamera, setIsUsingCamera] = useState(false)
   const [recognitionResult, setRecognitionResult] = useState<{
     isRecognized: boolean
-    person?: (typeof initialKnownPeople)[0]
+    person?: KnownPerson
   } | null>(null)
-  const [knownPeople, setKnownPeople] = useState(initialKnownPeople)
+  const [knownPeople, setKnownPeople] = useState<KnownPerson[]>([])
   const [newPerson, setNewPerson] = useState({
     name: "",
     relationship: "",
     details: "",
   })
   const [currentDistance, setCurrentDistance] = useState(320)
+  const [userData, setUserData] = useState<User | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const router = useRouter()
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
 
-  // Load known people from localStorage on component mount
   useEffect(() => {
-    const storedPeople = localStorage.getItem("knownPeople")
-    if (storedPeople) {
-      try {
-        setKnownPeople(JSON.parse(storedPeople))
-      } catch (e) {
-        console.error("Error parsing stored people:", e)
+    loadUserData()
+  }, [])
+
+  const loadUserData = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        router.push('/login')
+        return
       }
-    }
-  }, [])
 
-  // Save known people to localStorage when it changes
-  useEffect(() => {
-    localStorage.setItem("knownPeople", JSON.stringify(knownPeople))
-  }, [knownPeople])
+      // Get user data from users table
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .single()
 
-  // Clean up camera stream when component unmounts
-  useEffect(() => {
-    return () => {
-      stopCamera()
+      if (userError) throw userError
+
+      if (userData) {
+        setUserData(userData)
+        loadKnownPeople(user.id)
+      }
+    } catch (error) {
+      console.error('Error loading user:', error)
+      toast.error('Failed to load user data')
     }
-  }, [])
+  }
+
+  const loadKnownPeople = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('Known_People')
+        .select('*')
+        .eq('user_id', userId)
+      
+      if (error) {
+        console.error('Supabase error:', error)
+        toast.error(`Failed to load known people: ${error.message}`)
+        return
+      }
+      
+      if (data) {
+        setKnownPeople(data)
+      }
+    } catch (error) {
+      console.error('Error loading known people:', error)
+      toast.error('Failed to load known people')
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const startCamera = async () => {
     try {
@@ -162,11 +192,13 @@ export default function DashboardPage() {
   const handleAddPerson = () => {
     if (newPerson.name && newPerson.relationship) {
       const person = {
-        id: Date.now(),
+        id: Date.now().toString(),
+        user_id: userData?.id || "",
         name: newPerson.name,
         relationship: newPerson.relationship,
-        details: newPerson.details,
-        imageUrl: capturedImage || "/placeholder.svg",
+        phone: "",
+        photo_url: capturedImage || null,
+        supabase_img_url: capturedImage || null,
       }
 
       setKnownPeople([...knownPeople, person])
@@ -185,11 +217,20 @@ export default function DashboardPage() {
   }
 
   const handleEmergencyCall = () => {
-    alert("Emergency call initiated. Contacting caretaker...")
-    // In a real app, this would initiate a call or send an alert
+    const emergencyContacts = knownPeople.filter(person => 
+      person.relationship.toLowerCase().includes('emergency') || 
+      person.relationship.toLowerCase().includes('doctor')
+    )
+    
+    if (emergencyContacts.length > 0) {
+      // In a real app, this would initiate a call
+      toast.info(`Calling emergency contact: ${emergencyContacts[0].name}`)
+    } else {
+      toast.error('No emergency contacts found')
+    }
   }
 
-  const handleCallPerson = (person: any) => {
+  const handleCallPerson = (person: KnownPerson) => {
     alert(`Calling ${person?.name}...`)
     // In a real app, this would initiate a call
   }
@@ -285,12 +326,12 @@ export default function DashboardPage() {
             <CardContent className="space-y-4">
               <div className="flex items-center space-x-4">
                 <Avatar className="h-16 w-16">
-                  <AvatarImage src="/placeholder.svg" alt="Patient" />
-                  <AvatarFallback>JD</AvatarFallback>
+                  <AvatarImage src={userData?.patient_photo_url || ''} alt="Patient" />
+                  <AvatarFallback>{userData?.patient_name?.charAt(0) || 'P'}</AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="font-medium">John Doe</p>
-                  <p className="text-sm text-muted-foreground">ID: #12345</p>
+                  <p className="font-medium">{userData?.patient_name || 'Loading...'}</p>
+                  <p className="text-sm text-muted-foreground">ID: #{userData?.id?.slice(0, 8) || '...'}</p>
                 </div>
               </div>
 
@@ -315,17 +356,20 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <div className="pt-2 border-t">
+              <div>
                 <p className="text-sm font-medium mb-2">Emergency Contacts:</p>
                 <div className="space-y-2">
-                  <div className="flex items-center space-x-2">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm">Jane Doe: (555) 123-4567</p>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm">Dr. Smith: (555) 987-6543</p>
-                  </div>
+                  {knownPeople
+                    .filter(person => 
+                      person.relationship.toLowerCase().includes('emergency') || 
+                      person.relationship.toLowerCase().includes('doctor')
+                    )
+                    .map(contact => (
+                      <div key={contact.id} className="flex items-center space-x-2">
+                        <Phone className="h-4 w-4 text-muted-foreground" />
+                        <p className="text-sm">{contact.name}: {contact.phone}</p>
+                      </div>
+                    ))}
                 </div>
               </div>
             </CardContent>
@@ -399,23 +443,25 @@ export default function DashboardPage() {
             </DialogDescription>
             <div className="flex flex-col items-center justify-center space-y-4 py-4">
               <Avatar className="h-24 w-24">
-                <AvatarImage src="/placeholder.svg" alt="Patient" />
-                <AvatarFallback>JD</AvatarFallback>
+                <AvatarImage src={userData?.patient_photo_url || ''} alt="Patient" />
+                <AvatarFallback>{userData?.patient_name?.charAt(0) || 'P'}</AvatarFallback>
               </Avatar>
               <div className="text-center">
-                <h3 className="font-medium text-lg">John Doe</h3>
-                <p className="text-muted-foreground">Patient ID: #12345</p>
+                <h3 className="font-medium text-lg">{userData?.patient_name}</h3>
+                <p className="text-muted-foreground">Patient ID: #{userData?.id?.slice(0, 8)}</p>
               </div>
-              <div className="w-full space-y-2">
-                <div className="flex justify-between">
-                  <p className="text-sm font-medium">Caretaker:</p>
-                  <p className="text-sm">Jane Smith</p>
+              {knownPeople.length > 0 && (
+                <div className="w-full space-y-2">
+                  <div className="flex justify-between">
+                    <p className="text-sm font-medium">Caretaker:</p>
+                    <p className="text-sm">{knownPeople[0].name}</p>
+                  </div>
+                  <div className="flex justify-between">
+                    <p className="text-sm font-medium">Relationship:</p>
+                    <p className="text-sm">{knownPeople[0].relationship}</p>
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <p className="text-sm font-medium">Relationship:</p>
-                  <p className="text-sm">Family Member</p>
-                </div>
-              </div>
+              )}
             </div>
           </DialogHeader>
           <DialogFooter>
@@ -527,7 +573,7 @@ export default function DashboardPage() {
                   <AvatarImage
                     src={
                       recognitionResult.isRecognized
-                        ? recognitionResult.person?.imageUrl
+                        ? recognitionResult.person?.supabase_img_url
                         : capturedImage || "/placeholder.svg"
                     }
                     alt="Person"
