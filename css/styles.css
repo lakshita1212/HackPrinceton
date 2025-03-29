@@ -128,8 +128,9 @@ a {
 
 /* Buttons */
 .button {
-  display: inline-flex;\
-  align-  1fr));
+  display: inline-flex;
+  align-items: center; /* Vertically align items in the button */
+  justify-content: center; /* Horizontally align items in the button */
   gap: 1.5rem;
   width: 100%;
 }
