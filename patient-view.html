@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Patient View - SafeTrack</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <div class="container">
+    <div class="patient-view-card">
+      <div class="card-header text-center">
+        <h2>Patient View</h2>
+        <p>Simple interface for the patient to use</p>
+      </div>
+      <div class="card-content">
+        <div id="main-view" class="patient-main-view">
+          <div class="patient-buttons">
+            <button class="button primary large" id="who-am-i-btn">
+              <i class="fas fa-user"></i>
+              Who am I?
+            </button>
+            
+            <button class="button secondary large">
+              <i class="fas fa-phone"></i>
+              Call My Caretaker
+            </button>
+            
+            <button class="button tertiary large">
+              <i class="fas fa-home"></i>
+              Directions Home
+            </button>
+          </div>
+          
+          <div class="map-container">
+            <div class="map-placeholder">
+              <i class="fas fa-map-marker-alt"></i>
+              <p>Your current location</p>
+              <p class="distance-info">You are 320 meters from home</p>
+            </div>
+          </div>
+        </div>
+        
+        <div id="identity-view" class="patient-identity-view hidden">
+          <div class="identity-content">
+            <div class="avatar large">
+              <img src="https://via.placeholder.com/150" alt="Patient">
+            </div>
+            <div class="identity-details">
+              <h3>John Doe</h3>
+              <p>Patient ID: #12345</p>
+            </div>
+            <div class="identity-info">
+              <div class="detail-row">
+                <p class="detail-label">Caretaker:</p>
+                <p class="detail-value">Jane Smith</p>
+              </div>
+              <div class="detail-row">
+                <p class="detail-label">Relationship:</p>
+                <p class="detail-value">Family Member</p>
+              </div>
+              <div class="detail-row">
+                <p class="detail-label">Home Address:</p>
+                <p class="detail-value">123 Main St</p>
+              </div>
+            </div>
+            <button class="button primary full-width" id="back-to-main">
+              Back to Main View
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer text-center">
+        <p>If you need help, press the "Call My Caretaker" button</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/patient-view.js"></script>
+</body>
+</html>
+
