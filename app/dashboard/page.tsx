@@ -378,7 +378,7 @@ export default function DashboardPage() {
               size="sm"
               onClick={() => {
                 setShowIdentityDialog(true)
-                setIsMapVisible(false) // Hide map when dialog opens
+                setIsMapVisible(false) 
               }}
             >
               <User className="mr-2 h-4 w-4" />
@@ -1101,4 +1101,3 @@ export default function DashboardPage() {
     </div>
   )
 }
-

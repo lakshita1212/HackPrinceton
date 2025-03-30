@@ -45,7 +45,6 @@ interface UserData {
   email: string
   patient_name: string
   patient_photo_url: string | null
-  patient_side_photo_url: string | null
   base_latitude?: number
   base_longitude?: number
   radius?: number
@@ -81,10 +80,9 @@ export default function SetupPage() {
   const [emergencyContactPhone, setEmergencyContactPhone] = useState("")
   const [emergencyContactRelationship, setEmergencyContactRelationship] = useState("")
   const [secondaryContactPhone, setSecondaryContactPhone] = useState("")
-  const [patientPhotos, setPatientPhotos] = useState<{ front?: string; side?: string }>({})
+  const [patientPhotos, setPatientPhotos] = useState<{ front?: string }>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
   const frontPhotoRef = useRef<HTMLInputElement>(null)
-  const sidePhotoRef = useRef<HTMLInputElement>(null)
   const [personAddress, setPersonAddress] = useState("")
   const [personPhone, setPersonPhone] = useState("")
   const [isEmergencyContact, setIsEmergencyContact] = useState(false)
@@ -408,7 +406,6 @@ export default function SetupPage() {
         setPatientName(userData.patient_name || "")
         setPatientPhotos({
           front: userData.patient_photo_url || undefined,
-          side: userData.patient_side_photo_url || undefined,
         })
 
         // Set location data if available
@@ -671,7 +668,7 @@ export default function SetupPage() {
     }
   }
 
-  const handlePatientPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>, type: "front" | "side") => {
+  const handlePatientPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>, type: "front") => {
     if (!currentUser) return
 
     if (e.target.files && e.target.files[0]) {
@@ -684,7 +681,7 @@ export default function SetupPage() {
       }))
 
       // Update user's photo in the database
-      const updateField = type === "front" ? "patient_photo_url" : "patient_side_photo_url"
+      const updateField = "patient_photo_url"
       const { error } = await supabase
         .from("users")
         .update({ [updateField]: downloadURL })
@@ -704,7 +701,7 @@ export default function SetupPage() {
     }
   }
 
-  const handleDeletePatientPhoto = async (type: "front" | "side") => {
+  const handleDeletePatientPhoto = async (type: "front") => {
     if (!currentUser) return
 
     try {
@@ -715,7 +712,7 @@ export default function SetupPage() {
       }))
 
       // Update the database to remove the photo URL
-      const updateField = type === "front" ? "patient_photo_url" : "patient_side_photo_url"
+      const updateField = "patient_photo_url"
       const { error } = await supabase
         .from("users")
         .update({ [updateField]: null })
@@ -789,30 +786,6 @@ export default function SetupPage() {
                     accept="image/*"
                     ref={frontPhotoRef}
                     onChange={(e) => handlePatientPhotoChange(e, "front")}
-                  />
-                </div>
-                <div
-                  className="border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center h-40 cursor-pointer hover:border-primary"
-                  onClick={() => sidePhotoRef.current?.click()}
-                >
-                  {patientPhotos.side ? (
-                    <img
-                      src={patientPhotos.side || "/placeholder.svg"}
-                      alt="Side-profile preview"
-                      className="h-full w-full object-cover rounded"
-                    />
-                  ) : (
-                    <>
-                      <Upload className="h-10 w-10 text-muted-foreground mb-2" />
-                      <p className="text-sm text-muted-foreground">Upload side-profile photo</p>
-                    </>
-                  )}
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept="image/*"
-                    ref={sidePhotoRef}
-                    onChange={(e) => handlePatientPhotoChange(e, "side")}
                   />
                 </div>
               </div>
@@ -1141,15 +1114,6 @@ export default function SetupPage() {
                       <img
                         src={patientPhotos.front || "/placeholder.svg"}
                         alt="Front-facing photo"
-                        className="w-full h-full object-cover rounded-lg"
-                      />
-                    </div>
-                  )}
-                  {patientPhotos.side && (
-                    <div className="relative w-20 h-20">
-                      <img
-                        src={patientPhotos.side || "/placeholder.svg"}
-                        alt="Side-profile photo"
                         className="w-full h-full object-cover rounded-lg"
                       />
                     </div>
