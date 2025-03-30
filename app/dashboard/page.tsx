@@ -22,8 +22,10 @@ import {
   Home,
   Calendar,
 } from "lucide-react"
+import { compareFaces } from "./face-recognition"
 import MapComponent from "./MapComponent"
 import { useRouter } from "next/navigation"
+import ChatBot from "../components/ChatBot"
 import {
   Dialog,
   DialogContent,
@@ -131,9 +133,51 @@ export default function DashboardPage() {
     }>
   >([])
 
+  // Add a new state to track face recognition errors
+  const [recognitionError, setRecognitionError] = useState<string | null>(null)
+
   useEffect(() => {
     loadUserData()
   }, [])
+
+  // Add this useEffect to handle camera cleanup properly
+  useEffect(() => {
+    // Clean up camera when dialog closes
+    if (!showRecognitionDialog && streamRef.current) {
+      stopCamera()
+    }
+
+    // Clean up on component unmount
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop())
+      }
+    }
+  }, [showRecognitionDialog])
+
+  // Add this useEffect to ensure the camera is properly initialized when the dialog opens
+  // Add this near your other useEffect hooks
+  useEffect(() => {
+    // Initialize camera when dialog opens and camera is requested
+    if (showRecognitionDialog && !capturedImage && !recognitionResult) {
+      console.log("Dialog opened, initializing camera...")
+      // Small delay to ensure DOM is ready
+      const timer = setTimeout(() => {
+        if (videoRef.current) {
+          checkCameraAvailability().then((hasCamera) => {
+            if (hasCamera) {
+              startCamera()
+            }
+          })
+        } else {
+          //console.error("Video element not available after delay")
+          //toast.error("Could not initialize camera - video element not found")
+        }
+      }, 500)
+
+      return () => clearTimeout(timer)
+    }
+  }, [showRecognitionDialog, capturedImage, recognitionResult])
 
   const loadUserData = async () => {
     try {
@@ -171,7 +215,7 @@ export default function DashboardPage() {
               setBaseAddress(`${userData.base_latitude.toFixed(6)}, ${userData.base_longitude.toFixed(6)}`)
             }
           } catch (error) {
-            console.error("Error getting address from coordinates:", error)
+            //console.error("Error getting address from coordinates:", error)
             setBaseAddress(`${userData.base_latitude.toFixed(6)}, ${userData.base_longitude.toFixed(6)}`)
           }
         } else {
@@ -181,7 +225,7 @@ export default function DashboardPage() {
         loadKnownPeople(user.id)
       }
     } catch (error) {
-      console.error("Error loading user:", error)
+      //console.error("Error loading user:", error)
       toast.error("Failed to load user data")
       setIsLoading(false)
     }
@@ -194,7 +238,7 @@ export default function DashboardPage() {
       try {
         setKnownPeople(JSON.parse(storedPeople))
       } catch (e) {
-        console.error("Error parsing stored people:", e)
+        //console.error("Error parsing stored people:", e)
       }
     }
   }, [])
@@ -216,7 +260,7 @@ export default function DashboardPage() {
       const { data, error } = await supabase.from("Known_People").select("*").eq("user_id", userId)
 
       if (error) {
-        console.error("Supabase error:", error)
+        //console.error("Supabase error:", error)
         toast.error(`Failed to load known people: ${error.message}`)
         return
       }
@@ -225,7 +269,7 @@ export default function DashboardPage() {
         setKnownPeople(data)
       }
     } catch (error) {
-      console.error("Error loading known people:", error)
+      //console.error("Error loading known people:", error)
       toast.error("Failed to load known people")
     } finally {
       setIsLoading(false)
@@ -236,41 +280,165 @@ export default function DashboardPage() {
     return knownPeople.filter((person) => person.is_emergency_contact)
   }
 
+  // Replace the startCamera function with this improved version that sets proper video constraints
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
+      // Show loading state
+      toast.loading("Accessing camera...")
+
+      // First check if video element exists
+      if (!videoRef.current) {
+        toast.dismiss()
+        toast.error("Video element not available")
+        return
       }
+
+      // Check if browser supports getUserMedia
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast.dismiss()
+        toast.error("Your browser doesn't support camera access")
+        return
+      }
+
+      // Request camera with specific constraints for better compatibility and proper dimensions
+      const constraints = {
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: "user",
+        },
+        audio: false,
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints)
+
+      // Dismiss loading toast
+      toast.dismiss()
+
+      // Store the stream reference first
       streamRef.current = stream
+
+      // Then set the stream to the video element
+      videoRef.current.srcObject = stream
+
+      // Make sure the video plays when it's ready
+      videoRef.current.onloadedmetadata = () => {
+        if (videoRef.current) {
+          videoRef.current.play().catch((err) => {
+            console.error("Error playing video:", err)
+            toast.error("Could not start video stream")
+          })
+        }
+      }
+
       setIsUsingCamera(true)
+      toast.success("Camera activated")
     } catch (err) {
-      console.error("Error accessing camera:", err)
-      alert("Could not access camera. Please check permissions or try uploading a photo instead.")
+      //console.error("Error accessing camera:", err)
+      toast.dismiss()
+
+      // Provide more specific error messages based on the error
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        toast.error("Camera access denied. Please allow camera access in your browser settings.")
+      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        toast.error("No camera found. Please connect a camera and try again.")
+      } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+        toast.error("Camera is in use by another application or not accessible.")
+      } else if (err.name === "OverconstrainedError") {
+        toast.error("Camera doesn't meet the required constraints. Try a different camera.")
+      } else {
+        toast.error(`Camera error: ${err.message || "Unknown error"}`)
+      }
     }
   }
 
+  // Replace the stopCamera function with this improved version
   const stopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop())
+      streamRef.current.getTracks().forEach((track) => {
+        track.stop()
+      })
       streamRef.current = null
+
+      // Clear the video source
+      if (videoRef.current) {
+        videoRef.current.srcObject = null
+      }
     }
     setIsUsingCamera(false)
   }
 
-  const toggleMapVisibility = () => {
-    setIsMapVisible((prev) => !prev) // Toggle visibility of the map
+  // Replace the capturePhoto function with this improved version that maintains proper dimensions
+  const capturePhoto = () => {
+    if (!videoRef.current) {
+      toast.error("Camera not initialized")
+      return
+    }
+
+    try {
+      const video = videoRef.current
+
+      // Make sure the video is playing and has dimensions
+      if (video.readyState !== 4 || video.videoWidth === 0 || video.videoHeight === 0) {
+        toast.error("Video stream not ready yet. Please wait a moment and try again.")
+        return
+      }
+
+      // Create a canvas with the SAME dimensions as the video
+      const canvas = document.createElement("canvas")
+
+      // Use the actual video dimensions to maintain aspect ratio
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+
+      console.log(`Capturing photo at ${canvas.width}x${canvas.height}`)
+
+      const ctx = canvas.getContext("2d")
+      if (!ctx) {
+        toast.error("Could not create canvas context")
+        return
+      }
+
+      // Draw the video frame to the canvas
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+      // Get the image data at full quality
+      try {
+        const image = canvas.toDataURL("image/png", 1.0)
+        setCapturedImage(image)
+        stopCamera()
+        toast.success("Photo captured successfully")
+      } catch (err) {
+        console.error("Error converting canvas to image:", err)
+        toast.error("Failed to capture photo")
+      }
+    } catch (err) {
+      console.error("Error capturing photo:", err)
+      toast.error("Failed to capture photo")
+    }
   }
 
-  const capturePhoto = () => {
-    if (videoRef.current) {
-      const canvas = document.createElement("canvas")
-      canvas.width = videoRef.current.videoWidth
-      canvas.height = videoRef.current.videoHeight
-      canvas.getContext("2d")?.drawImage(videoRef.current, 0, 0)
-      const image = canvas.toDataURL("image/png")
-      setCapturedImage(image)
-      stopCamera()
+  // Add this function to check if the camera is available
+  const checkCameraAvailability = async () => {
+    try {
+      // First check if the browser supports getUserMedia
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast.error("Your browser doesn't support camera access")
+        return false
+      }
+
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const videoDevices = devices.filter((device) => device.kind === "videoinput")
+
+      if (videoDevices.length === 0) {
+        toast.error("No camera detected on your device")
+        return false
+      }
+      return true
+    } catch (err) {
+      console.error("Error checking camera availability:", err)
+      toast.error("Could not check camera availability")
+      return false
     }
   }
 
@@ -286,22 +454,169 @@ export default function DashboardPage() {
     }
   }
 
-  const recognizePerson = () => {
-    // In a real app, this would use a face recognition API
-    // For this demo, we'll simulate recognition with a random result
-    const isRecognized = Math.random() > 0.3 // 70% chance of recognition for demo
+  // Then, update the recognizePerson function to handle errors from the face recognition service
+  const recognizePerson = async () => {
+    if (!capturedImage || !userData?.id) {
+      toast.error("No image captured or user data missing")
+      return
+    }
 
-    if (isRecognized && knownPeople.length > 0) {
-      // Randomly select a known person for demo purposes
-      const randomPerson = knownPeople[Math.floor(Math.random() * knownPeople.length)]
-      setRecognitionResult({
-        isRecognized: true,
-        person: randomPerson,
-      })
-    } else {
+    try {
+      // Show loading state
+      toast.loading("Analyzing image...")
+      setRecognitionError(null)
+
+      // Check if we have known people to compare against
+      const { data: knownPeopleData, error: knownPeopleError } = await supabase
+        .from("Known_People")
+        .select("*")
+        .eq("user_id", userData.id)
+
+      if (knownPeopleError) {
+        console.error("Error fetching known people:", knownPeopleError)
+        toast.dismiss()
+        toast.error("Failed to fetch known people data")
+        return
+      }
+
+      // Filter people with photos and prepare for face comparison
+      const peopleWithPhotos = knownPeopleData.filter((person) => person.photo_url || person.supabase_img_url)
+
+      if (peopleWithPhotos.length === 0) {
+        toast.dismiss()
+        toast.info("No known people with photos to compare against")
+        setRecognitionResult({
+          isRecognized: false,
+        })
+        return
+      }
+
+      // Try to upload the image to Supabase storage
+      try {
+        // First, convert the captured image to a File object
+        const capturedImageFile = await dataURLtoFile(capturedImage, `recognition-${Date.now()}.png`)
+
+        console.log(
+          `Uploading file: ${capturedImageFile.name}, size: ${capturedImageFile.size} bytes, type: ${capturedImageFile.type}`,
+        )
+
+        // Check if file size is reasonable (less than 5MB)
+        if (capturedImageFile.size > 5 * 1024 * 1024) {
+          // If image is too large, resize it before uploading
+          toast.info("Image is large, optimizing for upload...")
+          // For now, we'll just proceed with the original image
+        }
+
+        // Upload to Supabase storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from("person-attachments")
+          .upload(`recognition/${userData.id}/${Date.now()}.png`, capturedImageFile)
+
+        if (uploadError) {
+          //console.error("Error uploading image to Supabase:", uploadError)
+          // Continue with face recognition using the data URL directly
+          console.log("Proceeding with face recognition using data URL directly")
+        } else {
+          console.log("Image uploaded successfully to Supabase:", uploadData.path)
+        }
+      } catch (uploadErr) {
+        //console.error("Exception during image upload:", uploadErr)
+        // Continue with face recognition using the data URL directly
+      }
+
+      // Prepare the target images for comparison
+      const targetImages = peopleWithPhotos.map((person) => ({
+        id: person.id,
+        url: person.photo_url || person.supabase_img_url,
+      }))
+
+      // Use the face recognition service to compare faces
+      // We'll pass the capturedImage directly as a data URL
+      const recognitionResult = await compareFaces(capturedImage, targetImages)
+
+      toast.dismiss()
+
+      // Check if there was an error in the face recognition service
+      if (recognitionResult.error) {
+        setRecognitionError(recognitionResult.error)
+        toast.error(recognitionResult.error)
+        setRecognitionResult({
+          isRecognized: false,
+        })
+        return
+      }
+
+      if (recognitionResult.isMatch && recognitionResult.personId) {
+        // Find the matched person in our known people data
+        const matchedPerson = peopleWithPhotos.find((person) => person.id === recognitionResult.personId)
+
+        if (matchedPerson) {
+          toast.success(
+            `Recognized: ${matchedPerson.name} (${Math.round(recognitionResult.confidence * 100)}% confidence)`,
+          )
+          setRecognitionResult({
+            isRecognized: true,
+            person: matchedPerson,
+          })
+        } else {
+          // This shouldn't happen, but handle it just in case
+          toast.error("Matched person not found in database")
+          setRecognitionResult({
+            isRecognized: false,
+          })
+        }
+      } else {
+        toast.info("Person not recognized")
+        setRecognitionResult({
+          isRecognized: false,
+        })
+      }
+    } catch (error) {
+      console.error("Error in recognition process:", error)
+      toast.dismiss()
+      toast.error("An error occurred during recognition")
+      setRecognitionError("Failed to process recognition request. Please try again.")
       setRecognitionResult({
         isRecognized: false,
       })
+    }
+  }
+
+  // Add this helper function to convert data URL to File object
+  const dataURLtoFile = (dataurl: string, filename: string): File => {
+    try {
+      // Check if it's a valid data URL
+      if (!dataurl.startsWith("data:")) {
+        throw new Error("Invalid data URL format")
+      }
+
+      // Split the data URL to get the MIME type and base64 data
+      const arr = dataurl.split(",")
+      if (arr.length !== 2) {
+        throw new Error("Invalid data URL format")
+      }
+
+      // Extract the MIME type
+      const mimeMatch = arr[0].match(/:(.*?);/)
+      if (!mimeMatch) {
+        throw new Error("Could not extract MIME type from data URL")
+      }
+      const mime = mimeMatch[1]
+
+      // Decode the base64 data
+      const bstr = atob(arr[1])
+      let n = bstr.length
+      const u8arr = new Uint8Array(n)
+
+      while (n--) {
+        u8arr[n] = bstr.charCodeAt(n)
+      }
+
+      console.log(`Creating file with MIME type: ${mime}, size: ${u8arr.length} bytes`)
+      return new File([u8arr], filename, { type: mime })
+    } catch (error) {
+      console.error("Error converting data URL to file:", error)
+      throw error
     }
   }
 
@@ -329,6 +644,7 @@ export default function DashboardPage() {
     setCapturedImage(null)
     setRecognitionResult(null)
   }
+
   const handleEmergencyCall = () => {
     const emergencyContacts = knownPeople.filter(
       (person) =>
@@ -364,6 +680,19 @@ export default function DashboardPage() {
     // or trigger a new location fetch
   }
 
+  // Add this useEffect to initialize camera when dialog opens
+  useEffect(() => {
+    if (showRecognitionDialog && isUsingCamera && !streamRef.current) {
+      const initCamera = async () => {
+        const hasCamera = await checkCameraAvailability()
+        if (hasCamera) {
+          startCamera()
+        }
+      }
+      initCamera()
+    }
+  }, [showRecognitionDialog, isUsingCamera])
+
   return (
     <div className="container py-6">
       <div className="flex flex-col space-y-6">
@@ -378,7 +707,7 @@ export default function DashboardPage() {
               size="sm"
               onClick={() => {
                 setShowIdentityDialog(true)
-                setIsMapVisible(false) 
+                setIsMapVisible(false)
               }}
             >
               <User className="mr-2 h-4 w-4" />
@@ -541,8 +870,7 @@ export default function DashboardPage() {
                 <p className="text-sm font-medium">Base Location:</p>
                 <p className="text-sm text-muted-foreground break-words">{baseAddress}</p>
                 {userData?.base_latitude && userData?.base_longitude && (
-                  <p className="text-xs text-muted-foreground">
-                  </p>
+                  <p className="text-xs text-muted-foreground"></p>
                 )}
               </div>
 
@@ -591,6 +919,7 @@ export default function DashboardPage() {
           </Card>
         </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
             <CardTitle>Activity History</CardTitle>
@@ -839,7 +1168,12 @@ export default function DashboardPage() {
             </Tabs>
           </CardContent>
         </Card>
+        
       </div>
+      </div>
+
+
+      
 
       {/* Who am I Dialog */}
       <Dialog
@@ -909,55 +1243,83 @@ export default function DashboardPage() {
             <DialogDescription>Take a photo or upload an image of the person you want to identify</DialogDescription>
           </DialogHeader>
 
-          {!capturedImage && !recognitionResult && (
+          {isUsingCamera ? (
+            <div className="relative border rounded-lg overflow-hidden">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-64 object-cover"
+                style={{ minHeight: "240px" }}
+                onError={(e) => {
+                  console.error("Video error:", e)
+                  toast.error("Error displaying video stream")
+                  stopCamera()
+                }}
+              />
+              <div className="absolute bottom-2 left-0 right-0 flex justify-center space-x-2">
+                <Button onClick={capturePhoto}>
+                  <Camera className="mr-2 h-4 w-4" />
+                  Capture
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    stopCamera()
+                    setIsUsingCamera(false)
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
             <div className="flex flex-col space-y-4">
-              {isUsingCamera ? (
-                <div className="relative border rounded-lg overflow-hidden">
-                  <video ref={videoRef} autoPlay playsInline className="w-full h-64 object-cover" />
-                  <div className="absolute bottom-2 left-0 right-0 flex justify-center space-x-2">
-                    <Button onClick={capturePhoto}>
-                      <Camera className="mr-2 h-4 w-4" />
-                      Capture
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        stopCamera()
-                        setIsUsingCamera(false)
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex justify-center space-x-4">
-                  <Button onClick={startCamera}>
-                    <Camera className="mr-2 h-4 w-4" />
-                    Take Photo
+              <div className="flex justify-center space-x-4">
+                <Button
+                  onClick={async () => {
+                    console.log("Take Photo button clicked")
+                    console.log("Video element exists:", !!videoRef.current)
+                    const hasCamera = await checkCameraAvailability()
+                    if (hasCamera) {
+                      setIsUsingCamera(true)
+                      // Small delay to ensure state update before starting camera
+                      setTimeout(() => {
+                        startCamera()
+                      }, 100)
+                    }
+                  }}
+                >
+                  <Camera className="mr-2 h-4 w-4" />
+                  Take Photo
+                </Button>
+                <div className="relative">
+                  <Button variant="outline" onClick={() => document.getElementById("upload-photo")?.click()}>
+                    <Upload className="mr-2 h-4 w-4" />
+                    Upload Photo
                   </Button>
-                  <div className="relative">
-                    <Button variant="outline" onClick={() => document.getElementById("upload-photo")?.click()}>
-                      <Upload className="mr-2 h-4 w-4" />
-                      Upload Photo
-                    </Button>
-                    <input
-                      type="file"
-                      id="upload-photo"
-                      className="sr-only"
-                      accept="image/*"
-                      onChange={handleFileUpload}
-                    />
-                  </div>
+                  <input
+                    type="file"
+                    id="upload-photo"
+                    className="sr-only"
+                    accept="image/*"
+                    onChange={handleFileUpload}
+                  />
                 </div>
-              )}
+              </div>
             </div>
           )}
 
           {capturedImage && !recognitionResult && (
             <div className="flex flex-col space-y-4">
               <div className="border rounded-lg overflow-hidden">
-                <img src={capturedImage || "/placeholder.svg"} alt="Preview" className="w-full h-64 object-cover" />
+                <img
+                  src={capturedImage || "/placeholder.svg"}
+                  alt="Preview"
+                  className="w-full object-contain"
+                  style={{ minHeight: "240px", maxHeight: "320px" }}
+                />
               </div>
               <div className="flex justify-center space-x-2">
                 <Button onClick={recognizePerson}>
@@ -983,6 +1345,14 @@ export default function DashboardPage() {
               <h3 className="text-xl font-semibold text-center">
                 {recognitionResult.isRecognized ? "Person Identified!" : "Stranger Alert"}
               </h3>
+
+              {recognitionError && (
+                <Alert variant="destructive" className="mb-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Error</AlertTitle>
+                  <AlertDescription>{recognitionError}</AlertDescription>
+                </Alert>
+              )}
 
               <div className="flex items-center space-x-4 border rounded-lg p-4">
                 <Avatar className="h-16 w-16">
@@ -1017,12 +1387,14 @@ export default function DashboardPage() {
                   Call This Person
                 </Button>
               ) : (
-
-                <Alert variant="warning">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>Warning</AlertTitle>
-                <AlertDescription>This person is not in your database. They may be a stranger.</AlertDescription>
-                </Alert>
+                <>
+                  <Alert variant="warning">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Warning</AlertTitle>
+                    <AlertDescription>This person is not in your database. They may be a stranger.</AlertDescription>
+                  </Alert>
+  
+                </>
               )}
 
               <Button variant="outline" onClick={resetRecognition}>
@@ -1096,3 +1468,4 @@ export default function DashboardPage() {
     </div>
   )
 }
+
