@@ -1017,17 +1017,11 @@ export default function DashboardPage() {
                   Call This Person
                 </Button>
               ) : (
-                <>
-                  <Alert variant="warning">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle>Warning</AlertTitle>
-                    <AlertDescription>This person is not in your database. They may be a stranger.</AlertDescription>
-                  </Alert>
-                  <Button variant="outline" onClick={() => setShowAddPersonDialog(true)}>
-                    <UserPlus className="mr-2 h-4 w-4" />
-                    Add to Known People
-                  </Button>
-                </>
+                <Alert variant="warning">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Warning</AlertTitle>
+                  <AlertDescription>This person is not in your database. They may be a stranger.</AlertDescription>
+                </Alert>
               )}
 
               <Button variant="outline" onClick={resetRecognition}>
