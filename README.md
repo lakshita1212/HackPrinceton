@@ -77,12 +77,6 @@ Acts as a virtual assistant for:
 
 ---
 
-## Demo & Screenshots
-
-Add demo GIFs or screenshots here once available
-
----
-
 ## Team
 
 Built at HackPrinceton Spring 2025 by:
