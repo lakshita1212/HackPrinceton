@@ -45,9 +45,9 @@ interface UserData {
   patient_name: string
   patient_photo_url: string | null
   patient_side_photo_url: string | null
-  base_location_lat?: number
-  base_location_lng?: number
-  safe_radius?: number
+  base_latitude?: number
+  base_longitude?: number
+  radius?: number
 }
 
 interface LocationCoordinates {
@@ -129,9 +129,9 @@ export default function SetupPage() {
       initialLng = position.coords.longitude
 
       // If we have stored coordinates, use those instead
-      if (currentUser?.base_location_lat && currentUser?.base_location_lng) {
-        initialLat = currentUser.base_location_lat
-        initialLng = currentUser.base_location_lng
+      if (currentUser?.base_latitude && currentUser?.base_longitude) {
+        initialLat = currentUser.base_latitude
+        initialLng = currentUser.base_longitude
 
         // Also set the base location coordinates state
         setBaseLocationCoords({
@@ -144,8 +144,8 @@ export default function SetupPage() {
       }
 
       // If we have a stored safe radius, use that
-      if (currentUser?.safe_radius) {
-        setSafeRadius(currentUser.safe_radius)
+      if (currentUser?.radius) {
+        setSafeRadius(currentUser.radius)
       }
     } catch (error) {
       console.error("Error getting current position:", error)
@@ -358,15 +358,15 @@ export default function SetupPage() {
         })
 
         // Set location data if available
-        if (userData.base_location_lat && userData.base_location_lng) {
+        if (userData.base_latitude && userData.base_longitude) {
           setBaseLocationCoords({
-            lat: userData.base_location_lat,
-            lng: userData.base_location_lng,
+            lat: userData.base_latitude,
+            lng: userData.base_longitude,
           })
         }
 
-        if (userData.safe_radius) {
-          setSafeRadius(userData.safe_radius)
+        if (userData.radius) {
+          setSafeRadius(userData.radius)
         }
 
         loadKnownPeople(user.id)
@@ -428,9 +428,9 @@ export default function SetupPage() {
           .from("users")
           .update({
             patient_name: patientName,
-            base_location_lat: baseLocationCoords.lat,
-            base_location_lng: baseLocationCoords.lng,
-            safe_radius: safeRadius,
+            base_latitude: baseLocationCoords.lat,
+            base_longitude: baseLocationCoords.lng,
+            radius: safeRadius,
           })
           .eq("id", currentUser.id)
 

@@ -1,4 +1,4 @@
-"\"use client"
+"use client"
 
 import { useState, useEffect, useRef } from "react"
 import { MapPin, Home, Clock, AlertTriangle } from "lucide-react"
@@ -7,12 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
-
-// Base location remains fixed
-const BASE_LOCATION = {
-  lat: 40.74235119427471,
-  lng: -74.17844566385337,
-}
+import { supabase } from "../supabaseConfig"
 
 // Default initial location (Princeton, NJ)
 const DEFAULT_LOCATION = {
@@ -39,7 +34,23 @@ interface MapComponentProps {
   safeRadius?: number
 }
 
-export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: MapComponentProps) {
+export default function MapComponent({ onLocationUpdate, safeRadius: propSafeRadius }: MapComponentProps) {
+  // State for user data from database
+  const [userData, setUserData] = useState<{
+    base_latitude: number
+    base_longitude: number
+    radius: number
+  } | null>(null)
+
+  // Base location from user data or default
+  const [baseLocation, setBaseLocation] = useState({
+    lat: DEFAULT_LOCATION.lat,
+    lng: DEFAULT_LOCATION.lng,
+  })
+
+  // Safe radius from user data or props or default
+  const [safeRadius, setSafeRadius] = useState(500)
+
   const [patientLocation, setPatientLocation] = useState(DEFAULT_LOCATION)
   const [currentDistance, setCurrentDistance] = useState(0)
   const [lastUpdated, setLastUpdated] = useState(new Date())
@@ -55,8 +66,51 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
   const safeZoneCircleRef = useRef<L.Circle | null>(null)
   const simulationIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Fetch user data from Supabase
+  useEffect(() => {
+    async function fetchUserData() {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
 
-  
+        if (!user) {
+          console.error("No authenticated user found")
+          return
+        }
+
+        const { data, error } = await supabase
+          .from("users")
+          .select("base_latitude, base_longitude, radius")
+          .eq("id", user.id)
+          .single()
+
+        if (error) {
+          console.error("Error fetching user data:", error)
+          return
+        }
+
+        if (data) {
+          setUserData(data)
+
+          // Set base location from database
+          if (data.base_latitude && data.base_longitude) {
+            setBaseLocation({
+              lat: data.base_latitude,
+              lng: data.base_longitude,
+            })
+          }
+
+          // Set safe radius from database or props
+          setSafeRadius(data.radius || propSafeRadius || 500)
+        }
+      } catch (error) {
+        console.error("Error in fetchUserData:", error)
+      }
+    }
+
+    fetchUserData()
+  }, [propSafeRadius])
 
   // Custom icons for markers
   const createPatientIcon = () => {
@@ -97,6 +151,9 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
 
   // Try to get user's location or fall back to simulation
   useEffect(() => {
+    // Don't try to get location until we have base location from database
+    if (!baseLocation) return
+
     // Check if geolocation is available
     setIsLoading(true)
     if (!navigator.geolocation) {
@@ -122,7 +179,7 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
           setIsLoading(false)
 
           // Calculate distance from base
-          const distance = calculateDistance(latitude, longitude, BASE_LOCATION.lat, BASE_LOCATION.lng)
+          const distance = calculateDistance(latitude, longitude, baseLocation.lat, baseLocation.lng)
           setCurrentDistance(Math.round(distance))
 
           // Notify parent component
@@ -151,14 +208,14 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
     return () => {
       stopSimulationMode()
     }
-  }, [])
+  }, [baseLocation])
 
   // Start simulation mode for location updates
   const startSimulationMode = () => {
     setIsSimulationMode(true)
 
     // Calculate initial distance
-    const distance = calculateDistance(patientLocation.lat, patientLocation.lng, BASE_LOCATION.lat, BASE_LOCATION.lng)
+    const distance = calculateDistance(patientLocation.lat, patientLocation.lng, baseLocation.lat, baseLocation.lng)
     setCurrentDistance(Math.round(distance))
 
     // Notify parent component of initial location
@@ -184,7 +241,7 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
       setLastUpdated(new Date())
 
       // Calculate distance from base
-      const distance = calculateDistance(newLat, newLng, BASE_LOCATION.lat, BASE_LOCATION.lng)
+      const distance = calculateDistance(newLat, newLng, baseLocation.lat, baseLocation.lng)
       setCurrentDistance(Math.round(distance))
 
       // Update marker position
@@ -250,12 +307,12 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
       // Add base location marker if enabled
       if (showBaseLocation) {
         const homeIcon = createHomeIcon()
-        const baseMarker = L.marker([BASE_LOCATION.lat, BASE_LOCATION.lng], { icon: homeIcon })
+        const baseMarker = L.marker([baseLocation.lat, baseLocation.lng], { icon: homeIcon })
           .addTo(map)
           .bindPopup("Base Location")
 
         // Add safe zone circle
-        const safeZoneCircle = L.circle([BASE_LOCATION.lat, BASE_LOCATION.lng], {
+        const safeZoneCircle = L.circle([baseLocation.lat, baseLocation.lng], {
           radius: safeRadius,
           color: "rgba(34, 197, 94, 0.5)",
           fillColor: "rgba(34, 197, 94, 0.1)",
@@ -265,7 +322,7 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
         baseMarkerRef.current = baseMarker
         safeZoneCircleRef.current = safeZoneCircle
 
-        bounds.extend([BASE_LOCATION.lat, BASE_LOCATION.lng])
+        bounds.extend([baseLocation.lat, baseLocation.lng])
         map.fitBounds(bounds, { padding: [50, 50] })
       }
 
@@ -282,7 +339,7 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
         safeZoneCircleRef.current = null
       }
     }
-  }, [patientLocation, isSimulationMode, showBaseLocation, safeRadius])
+  }, [patientLocation, isSimulationMode, showBaseLocation, safeRadius, baseLocation])
 
   // Update map when showBaseLocation changes
   useEffect(() => {
@@ -290,14 +347,14 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
       if (showBaseLocation) {
         if (!baseMarkerRef.current) {
           const homeIcon = createHomeIcon()
-          const baseMarker = L.marker([BASE_LOCATION.lat, BASE_LOCATION.lng], { icon: homeIcon })
+          const baseMarker = L.marker([baseLocation.lat, baseLocation.lng], { icon: homeIcon })
             .addTo(mapInstanceRef.current)
             .bindPopup("Base Location")
           baseMarkerRef.current = baseMarker
         }
 
         if (!safeZoneCircleRef.current) {
-          const safeZoneCircle = L.circle([BASE_LOCATION.lat, BASE_LOCATION.lng], {
+          const safeZoneCircle = L.circle([baseLocation.lat, baseLocation.lng], {
             radius: safeRadius,
             color: "rgba(34, 197, 94, 0.5)",
             fillColor: "rgba(34, 197, 94, 0.1)",
@@ -317,7 +374,7 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
         }
       }
     }
-  }, [showBaseLocation, safeRadius])
+  }, [showBaseLocation, safeRadius, baseLocation])
 
   const centerOnPatient = () => {
     if (mapInstanceRef.current && patientMarkerRef.current) {
@@ -343,7 +400,7 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
       setLastUpdated(new Date())
 
       // Calculate distance from base
-      const distance = calculateDistance(newLat, newLng, BASE_LOCATION.lat, BASE_LOCATION.lng)
+      const distance = calculateDistance(newLat, newLng, baseLocation.lat, baseLocation.lng)
       setCurrentDistance(Math.round(distance))
 
       // Update marker position
@@ -387,7 +444,7 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
           setLocationError(null)
 
           // Calculate distance from base
-          const distance = calculateDistance(latitude, longitude, BASE_LOCATION.lat, BASE_LOCATION.lng)
+          const distance = calculateDistance(latitude, longitude, baseLocation.lat, baseLocation.lng)
           setCurrentDistance(Math.round(distance))
 
           // Update marker position
