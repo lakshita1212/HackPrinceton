@@ -19,12 +19,6 @@ SafePath was built to bridge this gap—enabling independence with safety using 
 
 SafePath integrates multiple smart features to provide a robust elderly care solution:
 
-### Google Gemini AI Chatbot
-Acts as a virtual assistant for:
-- Friendly conversation and companionship
-- Setting reminders
-- Answering questions in a natural and supportive way
-
 ### Geofencing Alerts
 - Notifies caretakers in real-time when the elderly person crosses predefined safe zones.
 - Ensures rapid response if wandering occurs.
@@ -36,14 +30,20 @@ Acts as a virtual assistant for:
 ### Caretaker Connectivity
 - Real-time dashboard for caretakers to receive alerts, track location, and stay updated on their loved one’s safety.
 
+### Google Gemini AI Chatbot
+Acts as a virtual assistant for:
+- Friendly conversation and companionship
+- Setting reminders
+- Answering questions in a natural and supportive way
+
 ---
 
 ## Tech Stack
 
 - Frontend: React.js
-- AI Chatbot: Google Gemini API
 - Facial Recognition: DeepFace / TensorFlow.js 
 - Geofencing & Location Services: Google Maps API + Browser Geolocation API
+- AI Chatbot: Google Gemini API
 - Backend: Node.js / Flask (based on your implementation)
 - Database: Firebase / MongoDB (if applicable)
 
