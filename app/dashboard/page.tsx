@@ -378,7 +378,7 @@ export default function DashboardPage() {
               size="sm"
               onClick={() => {
                 setShowIdentityDialog(true)
-                setIsMapVisible(false) // Hide map when dialog opens
+                setIsMapVisible(false) 
               }}
             >
               <User className="mr-2 h-4 w-4" />
@@ -1017,11 +1017,17 @@ export default function DashboardPage() {
                   Call This Person
                 </Button>
               ) : (
-                <Alert variant="warning">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle>Warning</AlertTitle>
-                  <AlertDescription>This person is not in your database. They may be a stranger.</AlertDescription>
-                </Alert>
+                <>
+                  <Alert variant="warning">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Warning</AlertTitle>
+                    <AlertDescription>This person is not in your database. They may be a stranger.</AlertDescription>
+                  </Alert>
+                  <Button variant="outline" onClick={() => setShowAddPersonDialog(true)}>
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    Add to Known People
+                  </Button>
+                </>
               )}
 
               <Button variant="outline" onClick={resetRecognition}>
@@ -1095,4 +1101,3 @@ export default function DashboardPage() {
     </div>
   )
 }
-
