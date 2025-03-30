@@ -38,6 +38,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { supabase } from "../supabaseConfig"
 import { toast } from "sonner"
+import ChatBot from "../components/ChatBot"
 
 interface UserType {
   id: string
@@ -591,254 +592,258 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Activity History</CardTitle>
-            <CardDescription>Patient movement patterns and location alerts</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="today">
-              <TabsList className="mb-4">
-                <TabsTrigger value="today">Today</TabsTrigger>
-                <TabsTrigger value="week">This Week</TabsTrigger>
-                <TabsTrigger value="month">This Month</TabsTrigger>
-              </TabsList>
-              <TabsContent value="today" className="space-y-4">
-                {locationHistory.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-8 text-center">
-                    <MapPin className="h-12 w-12 text-muted-foreground mb-2 opacity-20" />
-                    <p className="text-muted-foreground">
-                      No activity recorded today. Location updates will appear here as the patient moves.
-                    </p>
-                    <Button variant="outline" size="sm" className="mt-4" onClick={() => refreshLocation?.()}>
-                      Refresh Location Data
-                    </Button>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="flex justify-between items-center mb-4">
-                      <div>
-                        <h4 className="text-sm font-medium">Latest Status</h4>
-                        <div className="flex items-center mt-1">
-                          <Badge
-                            variant={
-                              patientStatus === "safe"
-                                ? "outline"
-                                : patientStatus === "warning"
-                                  ? "secondary"
-                                  : "destructive"
-                            }
-                            className="mr-2"
-                          >
-                            {patientStatus === "safe" ? "Safe" : patientStatus === "warning" ? "Warning" : "Alert"}
-                          </Badge>
-                          <span className="text-sm text-muted-foreground">{currentDistance} meters from base</span>
-                        </div>
-                      </div>
-                      <Button variant="ghost" size="sm" onClick={() => refreshLocation?.()}>
-                        <Clock className="h-4 w-4 mr-2" />
-                        Refresh
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Activity History</CardTitle>
+              <CardDescription>Patient movement patterns and location alerts</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="today">
+                <TabsList className="mb-4">
+                  <TabsTrigger value="today">Today</TabsTrigger>
+                  <TabsTrigger value="week">This Week</TabsTrigger>
+                  <TabsTrigger value="month">This Month</TabsTrigger>
+                </TabsList>
+                <TabsContent value="today" className="space-y-4">
+                  {locationHistory.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-center">
+                      <MapPin className="h-12 w-12 text-muted-foreground mb-2 opacity-20" />
+                      <p className="text-muted-foreground">
+                        No activity recorded today. Location updates will appear here as the patient moves.
+                      </p>
+                      <Button variant="outline" size="sm" className="mt-4" onClick={() => refreshLocation?.()}>
+                        Refresh Location Data
                       </Button>
                     </div>
+                  ) : (
+                    <div>
+                      <div className="flex justify-between items-center mb-4">
+                        <div>
+                          <h4 className="text-sm font-medium">Latest Status</h4>
+                          <div className="flex items-center mt-1">
+                            <Badge
+                              variant={
+                                patientStatus === "safe"
+                                  ? "outline"
+                                  : patientStatus === "warning"
+                                    ? "secondary"
+                                    : "destructive"
+                              }
+                              className="mr-2"
+                            >
+                              {patientStatus === "safe" ? "Safe" : patientStatus === "warning" ? "Warning" : "Alert"}
+                            </Badge>
+                            <span className="text-sm text-muted-foreground">{currentDistance} meters from base</span>
+                          </div>
+                        </div>
+                        <Button variant="ghost" size="sm" onClick={() => refreshLocation?.()}>
+                          <Clock className="h-4 w-4 mr-2" />
+                          Refresh
+                        </Button>
+                      </div>
 
-                    <div className="space-y-4">
-                      {locationHistory.map((entry, index) => {
-                        // Determine status based on distance
-                        const safeRadius = userData?.radius || 500
-                        let status = "safe"
-                        let statusColor = "bg-green-500"
+                      <div className="space-y-4">
+                        {locationHistory.map((entry, index) => {
+                          // Determine status based on distance
+                          const safeRadius = userData?.radius || 500
+                          let status = "safe"
+                          let statusColor = "bg-green-500"
 
-                        if (entry.distance > safeRadius) {
-                          status = "alert"
-                          statusColor = "bg-red-500"
-                        } else if (entry.distance > safeRadius * 0.8) {
-                          status = "warning"
-                          statusColor = "bg-amber-500"
-                        }
+                          if (entry.distance > safeRadius) {
+                            status = "alert"
+                            statusColor = "bg-red-500"
+                          } else if (entry.distance > safeRadius * 0.8) {
+                            status = "warning"
+                            statusColor = "bg-amber-500"
+                          }
 
-                        // Format time
-                        const formattedTime = entry.time.toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
+                          // Format time
+                          const formattedTime = entry.time.toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
 
-                        // Format date if not today
-                        const isToday = new Date().toDateString() === entry.time.toDateString()
-                        const dateDisplay = isToday
-                          ? formattedTime
-                          : `${entry.time.toLocaleDateString([], { month: "short", day: "numeric" })} ${formattedTime}`
+                          // Format date if not today
+                          const isToday = new Date().toDateString() === entry.time.toDateString()
+                          const dateDisplay = isToday
+                            ? formattedTime
+                            : `${entry.time.toLocaleDateString([], { month: "short", day: "numeric" })} ${formattedTime}`
 
-                        return (
-                          <div
-                            key={entry.time.getTime()}
-                            className={`border-l-2 ${index === 0 ? "border-primary" : "border-muted"} pl-4 ml-2 relative`}
-                          >
+                          return (
                             <div
-                              className={`absolute w-3 h-3 ${statusColor} rounded-full -left-[7px] top-1 border-2 border-white dark:border-gray-800`}
-                            ></div>
+                              key={entry.time.getTime()}
+                              className={`border-l-2 ${index === 0 ? "border-primary" : "border-muted"} pl-4 ml-2 relative`}
+                            >
+                              <div
+                                className={`absolute w-3 h-3 ${statusColor} rounded-full -left-[7px] top-1 border-2 border-white dark:border-gray-800`}
+                              ></div>
 
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <div className="flex items-center">
-                                  <p className="font-medium">{dateDisplay}</p>
-                                  {index === 0 && (
-                                    <Badge variant="outline" className="ml-2 bg-primary/10">
-                                      Latest
-                                    </Badge>
-                                  )}
-                                </div>
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <div className="flex items-center">
+                                    <p className="font-medium">{dateDisplay}</p>
+                                    {index === 0 && (
+                                      <Badge variant="outline" className="ml-2 bg-primary/10">
+                                        Latest
+                                      </Badge>
+                                    )}
+                                  </div>
 
-                                <div className="flex items-center mt-1">
-                                  {entry.description === "Base Location" && (
-                                    <Home className="h-3 w-3 mr-1 text-muted-foreground" />
-                                  )}
-                                  {entry.description === "Far from Home" && (
-                                    <AlertTriangle className="h-3 w-3 mr-1 text-amber-500" />
-                                  )}
-                                  <p className="text-sm">
-                                    {entry.description}
-                                    {entry.description === "Far from Home" &&
-                                      status === "alert" &&
-                                      " - Outside Safe Zone"}
-                                  </p>
-                                </div>
+                                  <div className="flex items-center mt-1">
+                                    {entry.description === "Base Location" && (
+                                      <Home className="h-3 w-3 mr-1 text-muted-foreground" />
+                                    )}
+                                    {entry.description === "Far from Home" && (
+                                      <AlertTriangle className="h-3 w-3 mr-1 text-amber-500" />
+                                    )}
+                                    <p className="text-sm">
+                                      {entry.description}
+                                      {entry.description === "Far from Home" &&
+                                        status === "alert" &&
+                                        " - Outside Safe Zone"}
+                                    </p>
+                                  </div>
 
-                                <div className="flex flex-wrap gap-2 mt-2">
-                                  <span className="text-xs bg-muted px-2 py-1 rounded-md">
-                                    {entry.distance}m from base
-                                  </span>
-                                  {entry.distance > safeRadius && (
-                                    <span className="text-xs bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300 px-2 py-1 rounded-md">
-                                      {Math.round(entry.distance - safeRadius)}m beyond safe radius
+                                  <div className="flex flex-wrap gap-2 mt-2">
+                                    <span className="text-xs bg-muted px-2 py-1 rounded-md">
+                                      {entry.distance}m from base
                                     </span>
-                                  )}
-                                  {entry.distance <= safeRadius && (
-                                    <span className="text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300 px-2 py-1 rounded-md">
-                                      {Math.round(safeRadius - entry.distance)}m within safe radius
-                                    </span>
-                                  )}
+                                    {entry.distance > safeRadius && (
+                                      <span className="text-xs bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300 px-2 py-1 rounded-md">
+                                        {Math.round(entry.distance - safeRadius)}m beyond safe radius
+                                      </span>
+                                    )}
+                                    {entry.distance <= safeRadius && (
+                                      <span className="text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300 px-2 py-1 rounded-md">
+                                        {Math.round(safeRadius - entry.distance)}m within safe radius
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
+
+                                {index === 0 && status === "alert" && (
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    className="shrink-0"
+                                    onClick={handleEmergencyCall}
+                                  >
+                                    <Phone className="h-3 w-3 mr-1" />
+                                    Call
+                                  </Button>
+                                )}
                               </div>
 
                               {index === 0 && status === "alert" && (
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  className="shrink-0"
-                                  onClick={handleEmergencyCall}
-                                >
-                                  <Phone className="h-3 w-3 mr-1" />
-                                  Call
-                                </Button>
+                                <Alert variant="destructive" className="mt-2">
+                                  <AlertTriangle className="h-4 w-4" />
+                                  <AlertDescription>
+                                    Patient is outside their safe zone. Consider checking in.
+                                  </AlertDescription>
+                                </Alert>
                               )}
                             </div>
+                          )
+                        })}
+                      </div>
 
-                            {index === 0 && status === "alert" && (
-                              <Alert variant="destructive" className="mt-2">
-                                <AlertTriangle className="h-4 w-4" />
-                                <AlertDescription>
-                                  Patient is outside their safe zone. Consider checking in.
-                                </AlertDescription>
-                              </Alert>
-                            )}
-                          </div>
-                        )
-                      })}
+                      {locationHistory.length > 5 && (
+                        <Button variant="ghost" className="w-full mt-4" size="sm">
+                          View All Activity
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </TabsContent>
+                <TabsContent value="week">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-medium">Weekly Summary</h4>
+                      <Badge variant="outline">
+                        {new Date().toLocaleDateString([], { month: "short", day: "numeric" })} -{" "}
+                        {new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toLocaleDateString([], {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </Badge>
                     </div>
 
-                    {locationHistory.length > 5 && (
-                      <Button variant="ghost" className="w-full mt-4" size="sm">
-                        View All Activity
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm">Time spent at home:</span>
+                        <span className="text-sm font-medium">14 hours 30 minutes</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm">Longest time away:</span>
+                        <span className="text-sm font-medium">3 hours 15 minutes</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm">Alert incidents:</span>
+                        <span className="text-sm font-medium">2 incidents</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm">Average daily distance:</span>
+                        <span className="text-sm font-medium">1.2 km</span>
+                      </div>
+                    </div>
+
+                    <div className="h-[200px] w-full bg-muted/30 rounded-lg flex items-center justify-center">
+                      <p className="text-sm text-muted-foreground">Weekly activity chart will appear here</p>
+                    </div>
+
+                    <div className="flex justify-between">
+                      <h4 className="text-sm font-medium">Common Locations</h4>
+                      <Button variant="ghost" size="sm">
+                        View Map
                       </Button>
-                    )}
-                  </div>
-                )}
-              </TabsContent>
-              <TabsContent value="week">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-medium">Weekly Summary</h4>
-                    <Badge variant="outline">
-                      {new Date().toLocaleDateString([], { month: "short", day: "numeric" })} -{" "}
-                      {new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toLocaleDateString([], {
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </Badge>
-                  </div>
+                    </div>
 
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Time spent at home:</span>
-                      <span className="text-sm font-medium">14 hours 30 minutes</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Longest time away:</span>
-                      <span className="text-sm font-medium">3 hours 15 minutes</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Alert incidents:</span>
-                      <span className="text-sm font-medium">2 incidents</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Average daily distance:</span>
-                      <span className="text-sm font-medium">1.2 km</span>
+                    <div className="space-y-2">
+                      <div className="flex items-center p-2 border rounded-md">
+                        <Home className="h-4 w-4 mr-2 text-muted-foreground" />
+                        <div>
+                          <p className="text-sm font-medium">Home Base</p>
+                          <p className="text-xs text-muted-foreground">{baseAddress.split(",")[0]}</p>
+                        </div>
+                        <Badge className="ml-auto">80%</Badge>
+                      </div>
+                      <div className="flex items-center p-2 border rounded-md">
+                        <MapPin className="h-4 w-4 mr-2 text-muted-foreground" />
+                        <div>
+                          <p className="text-sm font-medium">Neighborhood Park</p>
+                          <p className="text-xs text-muted-foreground">250m from base</p>
+                        </div>
+                        <Badge className="ml-auto">15%</Badge>
+                      </div>
+                      <div className="flex items-center p-2 border rounded-md">
+                        <MapPin className="h-4 w-4 mr-2 text-muted-foreground" />
+                        <div>
+                          <p className="text-sm font-medium">Local Store</p>
+                          <p className="text-xs text-muted-foreground">450m from base</p>
+                        </div>
+                        <Badge className="ml-auto">5%</Badge>
+                      </div>
                     </div>
                   </div>
-
-                  <div className="h-[200px] w-full bg-muted/30 rounded-lg flex items-center justify-center">
-                    <p className="text-sm text-muted-foreground">Weekly activity chart will appear here</p>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <h4 className="text-sm font-medium">Common Locations</h4>
-                    <Button variant="ghost" size="sm">
-                      View Map
+                </TabsContent>
+                <TabsContent value="month">
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <Calendar className="h-12 w-12 text-muted-foreground mb-2 opacity-20" />
+                    <p className="text-muted-foreground">
+                      Monthly analytics and patterns will be available in the full version.
+                    </p>
+                    <Button variant="outline" className="mt-4">
+                      Upgrade to Pro
                     </Button>
                   </div>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center p-2 border rounded-md">
-                      <Home className="h-4 w-4 mr-2 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium">Home Base</p>
-                        <p className="text-xs text-muted-foreground">{baseAddress.split(",")[0]}</p>
-                      </div>
-                      <Badge className="ml-auto">80%</Badge>
-                    </div>
-                    <div className="flex items-center p-2 border rounded-md">
-                      <MapPin className="h-4 w-4 mr-2 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium">Neighborhood Park</p>
-                        <p className="text-xs text-muted-foreground">250m from base</p>
-                      </div>
-                      <Badge className="ml-auto">15%</Badge>
-                    </div>
-                    <div className="flex items-center p-2 border rounded-md">
-                      <MapPin className="h-4 w-4 mr-2 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium">Local Store</p>
-                        <p className="text-xs text-muted-foreground">450m from base</p>
-                      </div>
-                      <Badge className="ml-auto">5%</Badge>
-                    </div>
-                  </div>
-                </div>
-              </TabsContent>
-              <TabsContent value="month">
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <Calendar className="h-12 w-12 text-muted-foreground mb-2 opacity-20" />
-                  <p className="text-muted-foreground">
-                    Monthly analytics and patterns will be available in the full version.
-                  </p>
-                  <Button variant="outline" className="mt-4">
-                    Upgrade to Pro
-                  </Button>
-                </div>
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+          <ChatBot />
+        </div>
       </div>
 
       {/* Who am I Dialog */}
