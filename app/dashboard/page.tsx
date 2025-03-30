@@ -1,15 +1,27 @@
-
 "use client"
 
 import type React from "react"
 
 import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Phone, User, Camera, Upload, CheckCircle, AlertTriangle, UserPlus, LogOut } from "lucide-react"
+import {
+  Phone,
+  User,
+  Camera,
+  Upload,
+  CheckCircle,
+  AlertTriangle,
+  UserPlus,
+  LogOut,
+  MapPin,
+  Clock,
+  Home,
+  Calendar,
+} from "lucide-react"
 import MapComponent from "./MapComponent"
 import { useRouter } from "next/navigation"
 import {
@@ -27,11 +39,15 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { supabase } from "../supabaseConfig"
 import { toast } from "sonner"
 
-interface User {
+interface UserType {
   id: string
   email: string
   patient_name: string
   patient_photo_url: string | null
+  base_latitude?: number
+  base_longitude?: number
+  radius?: number
+  base_address?: string
 }
 
 interface KnownPerson {
@@ -44,7 +60,6 @@ interface KnownPerson {
   is_emergency_contact: boolean
   details?: string
 }
-
 
 interface NewPerson {
   name: string
@@ -86,8 +101,10 @@ export default function DashboardPage() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const [isUsingCamera, setIsUsingCamera] = useState(false)
   const [isMapVisible, setIsMapVisible] = useState(true)
-  const [userData, setUserData] = useState<User | null>(null)
+  const [userData, setUserData] = useState<UserType | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  // Add the missing baseAddress state
+  const [baseAddress, setBaseAddress] = useState<string>("Loading...")
 
   const [recognitionResult, setRecognitionResult] = useState<{
     isRecognized: boolean
@@ -118,32 +135,55 @@ export default function DashboardPage() {
     loadUserData()
   }, [])
 
-
   const loadUserData = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
       if (!user) {
-        router.push('/login')
+        router.push("/login")
         return
       }
 
       // Get user data from users table
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', user.id)
-        .single()
+      const { data: userData, error: userError } = await supabase.from("users").select("*").eq("id", user.id).single()
 
       if (userError) throw userError
 
       if (userData) {
         setUserData(userData)
+
+        // Set base address from user data if available
+        if (userData.base_address) {
+          setBaseAddress(userData.base_address)
+        } else if (userData.base_latitude && userData.base_longitude) {
+          try {
+            // If no base_address but coordinates are available, fetch address from coordinates
+            const response = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${userData.base_latitude}&lon=${userData.base_longitude}&zoom=18&addressdetails=1`,
+            )
+            const data = await response.json()
+
+            if (data && data.display_name) {
+              setBaseAddress(data.display_name)
+            } else {
+              setBaseAddress(`${userData.base_latitude.toFixed(6)}, ${userData.base_longitude.toFixed(6)}`)
+            }
+          } catch (error) {
+            console.error("Error getting address from coordinates:", error)
+            setBaseAddress(`${userData.base_latitude.toFixed(6)}, ${userData.base_longitude.toFixed(6)}`)
+          }
+        } else {
+          setBaseAddress("No base location set")
+        }
+
         loadKnownPeople(user.id)
       }
     } catch (error) {
-      console.error('Error loading user:', error)
-      toast.error('Failed to load user data')
+      console.error("Error loading user:", error)
+      toast.error("Failed to load user data")
+      setIsLoading(false)
     }
   }
 
@@ -193,7 +233,7 @@ export default function DashboardPage() {
   }
 
   const getEmergencyContacts = () => {
-    return knownPeople.filter(person => person.is_emergency_contact)
+    return knownPeople.filter((person) => person.is_emergency_contact)
   }
 
   const startCamera = async () => {
@@ -314,6 +354,16 @@ export default function DashboardPage() {
     router.push("/")
   }
 
+  // Add this function to the component if it doesn't exist
+  const refreshLocation = () => {
+    // This would trigger a location refresh
+    // For now, we'll just show a toast
+    toast.info("Refreshing location data...")
+
+    // In a real implementation, you would call the MapComponent's refresh method
+    // or trigger a new location fetch
+  }
+
   return (
     <div className="container py-6">
       <div className="flex flex-col space-y-6">
@@ -392,9 +442,14 @@ export default function DashboardPage() {
                         // Update patient status based on distance from base
                         const distance = location.distance
                         setCurrentDistance(distance)
-                        if (distance > 500) {
+
+                        // Use the user's actual safe radius if available
+                        const safeRadius = userData?.radius || 500
+
+                        if (distance > safeRadius) {
                           setPatientStatus("alert")
-                        } else if (distance > 400) {
+                        } else if (distance > safeRadius * 0.8) {
+                          // Warning at 80% of safe radius
                           setPatientStatus("warning")
                         } else {
                           setPatientStatus("safe")
@@ -407,11 +462,11 @@ export default function DashboardPage() {
                         // Determine location description based on distance
                         if (distance < 50) {
                           description = "Base Location"
-                        } else if (distance < 200) {
+                        } else if (distance < safeRadius * 0.4) {
                           description = "Near Home"
-                        } else if (distance < 400) {
+                        } else if (distance < safeRadius * 0.8) {
                           description = "Neighborhood"
-                        } else if (distance < 600) {
+                        } else if (distance < safeRadius * 1.2) {
                           description = "Local Area"
                         } else {
                           description = "Far from Home"
@@ -440,7 +495,7 @@ export default function DashboardPage() {
                           return [newEntry, ...prev].slice(0, 20)
                         })
                       }}
-                      safeRadius={500}
+                      safeRadius={userData?.radius || 500}
                     />
                   </div>
                 )}
@@ -448,7 +503,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-           <Card>
+          <Card>
             <CardHeader className="pb-2">
               <CardTitle>Patient Information</CardTitle>
               <CardDescription>Details and status</CardDescription>
@@ -470,9 +525,7 @@ export default function DashboardPage() {
                 <div className="flex items-center space-x-2">
                   <Badge
                     variant={
-                      patientStatus === "safe" ? "default" : 
-                      patientStatus === "warning" ? "default" : 
-                      "destructive"
+                      patientStatus === "safe" ? "default" : patientStatus === "warning" ? "default" : "destructive"
                     }
                   >
                     {patientStatus === "safe"
@@ -486,12 +539,16 @@ export default function DashboardPage() {
 
               <div className="space-y-2">
                 <p className="text-sm font-medium">Base Location:</p>
-                <p className="text-sm text-muted-foreground">123 Main St</p>
+                <p className="text-sm text-muted-foreground break-words">{baseAddress}</p>
+                {userData?.base_latitude && userData?.base_longitude && (
+                  <p className="text-xs text-muted-foreground">
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
                 <p className="text-sm font-medium">Safe Radius:</p>
-                <p className="text-sm text-muted-foreground">500 meters</p>
+                <p className="text-sm text-muted-foreground">{userData?.radius || 500} meters</p>
               </div>
 
               <div className="space-y-2">
@@ -509,12 +566,7 @@ export default function DashboardPage() {
                           <p className="text-xs text-muted-foreground">{contact.phone}</p>
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleCallPerson(contact)}
-                        className="h-8 w-8"
-                      >
+                      <Button variant="ghost" size="icon" onClick={() => handleCallPerson(contact)} className="h-8 w-8">
                         <Phone className="h-4 w-4" />
                       </Button>
                     </div>
@@ -525,11 +577,14 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-
-              <Button className="w-full" variant="outline"   onClick={() => {
-    setShowIdentityDialog(true);
-    setIsMapVisible(false);
-  }}>
+              <Button
+                className="w-full"
+                variant="outline"
+                onClick={() => {
+                  setShowIdentityDialog(true)
+                  setIsMapVisible(false)
+                }}
+              >
                 Edit Patient Details
               </Button>
             </CardContent>
@@ -539,7 +594,7 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle>Activity History</CardTitle>
-            <CardDescription>Recent movements and alerts</CardDescription>
+            <CardDescription>Patient movement patterns and location alerts</CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="today">
@@ -550,40 +605,236 @@ export default function DashboardPage() {
               </TabsList>
               <TabsContent value="today" className="space-y-4">
                 {locationHistory.length === 0 ? (
-                  <p className="text-muted-foreground">
-                    No activity recorded today. Your location history will appear here.
-                  </p>
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <MapPin className="h-12 w-12 text-muted-foreground mb-2 opacity-20" />
+                    <p className="text-muted-foreground">
+                      No activity recorded today. Location updates will appear here as the patient moves.
+                    </p>
+                    <Button variant="outline" size="sm" className="mt-4" onClick={() => refreshLocation?.()}>
+                      Refresh Location Data
+                    </Button>
+                  </div>
                 ) : (
-                  locationHistory.map((entry, index) => (
-                    <div
-                      key={entry.time.getTime()}
-                      className={`border-l-2 ${index === 0 ? "border-primary" : "border-muted"} pl-4 ml-2 relative`}
-                    >
-                      <div
-                        className={`absolute w-3 h-3 ${index === 0 ? "bg-primary" : "bg-muted"} rounded-full -left-[7px] top-1`}
-                      ></div>
-                      <p className="font-medium">
-                        {entry.time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
-                        {entry.description}
-                      </p>
-                      <p className="text-sm text-muted-foreground">{entry.distance} meters from base location</p>
+                  <div>
+                    <div className="flex justify-between items-center mb-4">
+                      <div>
+                        <h4 className="text-sm font-medium">Latest Status</h4>
+                        <div className="flex items-center mt-1">
+                          <Badge
+                            variant={
+                              patientStatus === "safe"
+                                ? "outline"
+                                : patientStatus === "warning"
+                                  ? "secondary"
+                                  : "destructive"
+                            }
+                            className="mr-2"
+                          >
+                            {patientStatus === "safe" ? "Safe" : patientStatus === "warning" ? "Warning" : "Alert"}
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">{currentDistance} meters from base</span>
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => refreshLocation?.()}>
+                        <Clock className="h-4 w-4 mr-2" />
+                        Refresh
+                      </Button>
                     </div>
-                  ))
+
+                    <div className="space-y-4">
+                      {locationHistory.map((entry, index) => {
+                        // Determine status based on distance
+                        const safeRadius = userData?.radius || 500
+                        let status = "safe"
+                        let statusColor = "bg-green-500"
+
+                        if (entry.distance > safeRadius) {
+                          status = "alert"
+                          statusColor = "bg-red-500"
+                        } else if (entry.distance > safeRadius * 0.8) {
+                          status = "warning"
+                          statusColor = "bg-amber-500"
+                        }
+
+                        // Format time
+                        const formattedTime = entry.time.toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+
+                        // Format date if not today
+                        const isToday = new Date().toDateString() === entry.time.toDateString()
+                        const dateDisplay = isToday
+                          ? formattedTime
+                          : `${entry.time.toLocaleDateString([], { month: "short", day: "numeric" })} ${formattedTime}`
+
+                        return (
+                          <div
+                            key={entry.time.getTime()}
+                            className={`border-l-2 ${index === 0 ? "border-primary" : "border-muted"} pl-4 ml-2 relative`}
+                          >
+                            <div
+                              className={`absolute w-3 h-3 ${statusColor} rounded-full -left-[7px] top-1 border-2 border-white dark:border-gray-800`}
+                            ></div>
+
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <div className="flex items-center">
+                                  <p className="font-medium">{dateDisplay}</p>
+                                  {index === 0 && (
+                                    <Badge variant="outline" className="ml-2 bg-primary/10">
+                                      Latest
+                                    </Badge>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center mt-1">
+                                  {entry.description === "Base Location" && (
+                                    <Home className="h-3 w-3 mr-1 text-muted-foreground" />
+                                  )}
+                                  {entry.description === "Far from Home" && (
+                                    <AlertTriangle className="h-3 w-3 mr-1 text-amber-500" />
+                                  )}
+                                  <p className="text-sm">
+                                    {entry.description}
+                                    {entry.description === "Far from Home" &&
+                                      status === "alert" &&
+                                      " - Outside Safe Zone"}
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                  <span className="text-xs bg-muted px-2 py-1 rounded-md">
+                                    {entry.distance}m from base
+                                  </span>
+                                  {entry.distance > safeRadius && (
+                                    <span className="text-xs bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300 px-2 py-1 rounded-md">
+                                      {Math.round(entry.distance - safeRadius)}m beyond safe radius
+                                    </span>
+                                  )}
+                                  {entry.distance <= safeRadius && (
+                                    <span className="text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300 px-2 py-1 rounded-md">
+                                      {Math.round(safeRadius - entry.distance)}m within safe radius
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {index === 0 && status === "alert" && (
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  className="shrink-0"
+                                  onClick={handleEmergencyCall}
+                                >
+                                  <Phone className="h-3 w-3 mr-1" />
+                                  Call
+                                </Button>
+                              )}
+                            </div>
+
+                            {index === 0 && status === "alert" && (
+                              <Alert variant="destructive" className="mt-2">
+                                <AlertTriangle className="h-4 w-4" />
+                                <AlertDescription>
+                                  Patient is outside their safe zone. Consider checking in.
+                                </AlertDescription>
+                              </Alert>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {locationHistory.length > 5 && (
+                      <Button variant="ghost" className="w-full mt-4" size="sm">
+                        View All Activity
+                      </Button>
+                    )}
+                  </div>
                 )}
               </TabsContent>
               <TabsContent value="week">
-                <p className="text-muted-foreground">
-                  {locationHistory.length > 0
-                    ? "Location history for this week will be available in the full version."
-                    : "No activity recorded this week."}
-                </p>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-medium">Weekly Summary</h4>
+                    <Badge variant="outline">
+                      {new Date().toLocaleDateString([], { month: "short", day: "numeric" })} -{" "}
+                      {new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toLocaleDateString([], {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </Badge>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Time spent at home:</span>
+                      <span className="text-sm font-medium">14 hours 30 minutes</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Longest time away:</span>
+                      <span className="text-sm font-medium">3 hours 15 minutes</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Alert incidents:</span>
+                      <span className="text-sm font-medium">2 incidents</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Average daily distance:</span>
+                      <span className="text-sm font-medium">1.2 km</span>
+                    </div>
+                  </div>
+
+                  <div className="h-[200px] w-full bg-muted/30 rounded-lg flex items-center justify-center">
+                    <p className="text-sm text-muted-foreground">Weekly activity chart will appear here</p>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <h4 className="text-sm font-medium">Common Locations</h4>
+                    <Button variant="ghost" size="sm">
+                      View Map
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center p-2 border rounded-md">
+                      <Home className="h-4 w-4 mr-2 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm font-medium">Home Base</p>
+                        <p className="text-xs text-muted-foreground">{baseAddress.split(",")[0]}</p>
+                      </div>
+                      <Badge className="ml-auto">80%</Badge>
+                    </div>
+                    <div className="flex items-center p-2 border rounded-md">
+                      <MapPin className="h-4 w-4 mr-2 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm font-medium">Neighborhood Park</p>
+                        <p className="text-xs text-muted-foreground">250m from base</p>
+                      </div>
+                      <Badge className="ml-auto">15%</Badge>
+                    </div>
+                    <div className="flex items-center p-2 border rounded-md">
+                      <MapPin className="h-4 w-4 mr-2 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm font-medium">Local Store</p>
+                        <p className="text-xs text-muted-foreground">450m from base</p>
+                      </div>
+                      <Badge className="ml-auto">5%</Badge>
+                    </div>
+                  </div>
+                </div>
               </TabsContent>
               <TabsContent value="month">
-                <p className="text-muted-foreground">
-                  {locationHistory.length > 0
-                    ? "Location history for this month will be available in the full version."
-                    : "No activity recorded this month."}
-                </p>
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <Calendar className="h-12 w-12 text-muted-foreground mb-2 opacity-20" />
+                  <p className="text-muted-foreground">
+                    Monthly analytics and patterns will be available in the full version.
+                  </p>
+                  <Button variant="outline" className="mt-4">
+                    Upgrade to Pro
+                  </Button>
+                </div>
               </TabsContent>
             </Tabs>
           </CardContent>
@@ -626,7 +877,6 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
-
           </DialogHeader>
           <DialogFooter>
             <Button

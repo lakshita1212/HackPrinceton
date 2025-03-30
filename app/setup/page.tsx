@@ -39,6 +39,7 @@ interface KnownPerson {
   is_emergency_contact: boolean
 }
 
+// Update the UserData interface to include base_address
 interface UserData {
   id: string
   email: string
@@ -48,6 +49,7 @@ interface UserData {
   base_latitude?: number
   base_longitude?: number
   radius?: number
+  base_location?: string
 }
 
 interface LocationCoordinates {
@@ -239,6 +241,7 @@ export default function SetupPage() {
     })
   }
 
+  // Update the setCurrentLocationAsBase function to also update the base_address
   const setCurrentLocationAsBase = async () => {
     try {
       const position = await getCurrentPosition()
@@ -261,8 +264,38 @@ export default function SetupPage() {
         lng: longitude,
       })
 
-      // Get address from coordinates
-      getAddressFromCoordinates(latitude, longitude)
+      // Get address from coordinates and update base_address
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
+        )
+        const data = await response.json()
+
+        if (data && data.display_name) {
+          setBaseLocation(data.display_name)
+
+          // If the user has already set up their account, update the base_address immediately
+          if (currentUser) {
+            const { error } = await supabase
+              .from("users")
+              .update({
+                base_location: data.display_name,
+                base_latitude: latitude,
+                base_longitude: longitude,
+              })
+              .eq("id", currentUser.id)
+
+            if (error) {
+              console.error("Error updating base address:", error)
+            }
+          }
+        } else {
+          setBaseLocation(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`)
+        }
+      } catch (error) {
+        console.error("Error getting address from coordinates:", error)
+        setBaseLocation(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`)
+      }
 
       toast.success("Current location set as base")
     } catch (error) {
@@ -289,6 +322,7 @@ export default function SetupPage() {
     }
   }
 
+  // Update the getCoordinatesFromAddress function to ensure the address is stored
   const getCoordinatesFromAddress = async (address: string) => {
     setIsAddressSearching(true)
     setAddressSearchError(null)
@@ -320,13 +354,33 @@ export default function SetupPage() {
           lng: longitude,
         })
 
+        // Store the address directly from user input
         setBaseLocation(address)
+
+        // If the user has already set up their account, update the base_address immediately
+        if (currentUser) {
+          const { error } = await supabase
+            .from("users")
+            .update({
+              base_location: address,
+              base_latitude: latitude,
+              base_longitude: longitude,
+            })
+            .eq("id", currentUser.id)
+
+          if (error) {
+            console.error("Error updating base address:", error)
+          }
+        }
+
         toast.success("Address located successfully")
       } else {
+        setAddressSearchError("Address not found. Please try a different address.")
         toast.error("Address not found")
       }
     } catch (error) {
       console.error("Error getting coordinates from address:", error)
+      setAddressSearchError("Error searching for address. Please try again.")
       toast.error("Error searching for address")
     } finally {
       setIsAddressSearching(false)
@@ -399,6 +453,7 @@ export default function SetupPage() {
     }
   }
 
+  // Update the nextStep function to include base_address in the user data update
   const nextStep = async () => {
     if (step < 4) {
       // Validate current step
@@ -431,6 +486,7 @@ export default function SetupPage() {
             base_latitude: baseLocationCoords.lat,
             base_longitude: baseLocationCoords.lng,
             radius: safeRadius,
+            base_location: baseLocation, // Store the base location address
           })
           .eq("id", currentUser.id)
 
@@ -836,7 +892,7 @@ export default function SetupPage() {
                   id="radius"
                   value={[safeRadius]}
                   min={100}
-                  max={2000}
+                  max={100000}
                   step={100}
                   onValueChange={handleSafeRadiusChange}
                 />
