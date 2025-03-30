@@ -1017,13 +1017,12 @@ export default function DashboardPage() {
                   Call This Person
                 </Button>
               ) : (
-                <>
-                  <Alert variant="warning">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle>Warning</AlertTitle>
-                    <AlertDescription>This person is not in your database. They may be a stranger.</AlertDescription>
-                  </Alert>
-                </>
+
+                <Alert variant="warning">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Warning</AlertTitle>
+                <AlertDescription>This person is not in your database. They may be a stranger.</AlertDescription>
+                </Alert>
               )}
 
               <Button variant="outline" onClick={resetRecognition}>
@@ -1045,6 +1044,7 @@ export default function DashboardPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add New Person</DialogTitle>
+            <DialogDescription>Add this person to your known people database</DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col space-y-4 py-4">
