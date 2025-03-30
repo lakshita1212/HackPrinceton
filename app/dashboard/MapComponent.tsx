@@ -55,6 +55,9 @@ export default function MapComponent({ onLocationUpdate, safeRadius = 500 }: Map
   const safeZoneCircleRef = useRef<L.Circle | null>(null)
   const simulationIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
+
+  
+
   // Custom icons for markers
   const createPatientIcon = () => {
     return L.divIcon({

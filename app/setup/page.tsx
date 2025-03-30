@@ -1,8 +1,7 @@
-
-
 "use client"
 
-import React, { useState, useRef, useEffect } from "react"
+import type React from "react"
+import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -20,10 +19,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Upload, MapPin, Phone, User, Trash2, X, Loader2 } from "lucide-react"
+import { Upload, MapPin, User, Trash2, X, Loader2, Search } from "lucide-react"
 import { supabase } from "../supabaseConfig"
 import { v4 } from "uuid"
 import { toast } from "sonner"
+import L from "leaflet"
+import "leaflet/dist/leaflet.css"
 
 interface KnownPerson {
   id: number
@@ -38,12 +39,20 @@ interface KnownPerson {
   is_emergency_contact: boolean
 }
 
-interface User {
+interface UserData {
   id: string
   email: string
   patient_name: string
   patient_photo_url: string | null
   patient_side_photo_url: string | null
+  base_location_lat?: number
+  base_location_lng?: number
+  safe_radius?: number
+}
+
+interface LocationCoordinates {
+  lat: number
+  lng: number
 }
 
 export default function SetupPage() {
@@ -54,7 +63,7 @@ export default function SetupPage() {
   const [showKnownPeopleModal, setShowKnownPeopleModal] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [currentUser, setCurrentUser] = useState<UserData | null>(null)
 
   // Form states
   const [personName, setPersonName] = useState("")
@@ -64,77 +73,327 @@ export default function SetupPage() {
   const [patientName, setPatientName] = useState("")
   const [patientRelationship, setPatientRelationship] = useState("")
   const [baseLocation, setBaseLocation] = useState("")
+  const [baseLocationCoords, setBaseLocationCoords] = useState<LocationCoordinates | null>(null)
   const [safeRadius, setSafeRadius] = useState(500)
   const [emergencyContactName, setEmergencyContactName] = useState("")
   const [emergencyContactPhone, setEmergencyContactPhone] = useState("")
   const [emergencyContactRelationship, setEmergencyContactRelationship] = useState("")
   const [secondaryContactPhone, setSecondaryContactPhone] = useState("")
-  const [patientPhotos, setPatientPhotos] = useState<{front?: string, side?: string}>({})
+  const [patientPhotos, setPatientPhotos] = useState<{ front?: string; side?: string }>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
   const frontPhotoRef = useRef<HTMLInputElement>(null)
   const sidePhotoRef = useRef<HTMLInputElement>(null)
   const [personAddress, setPersonAddress] = useState("")
   const [personPhone, setPersonPhone] = useState("")
   const [isEmergencyContact, setIsEmergencyContact] = useState(false)
+  const [isAddressSearching, setIsAddressSearching] = useState(false)
+  const [addressSearchError, setAddressSearchError] = useState<string | null>(null)
+
+  // Map refs
+  const mapRef = useRef<HTMLDivElement>(null)
+  const mapInstanceRef = useRef<L.Map | null>(null)
+  const markerRef = useRef<L.Marker | null>(null)
+  const circleRef = useRef<L.Circle | null>(null)
 
   // Load current user and their data on component mount
   useEffect(() => {
     loadCurrentUser()
   }, [])
 
+  // Initialize map when step is 2
+  useEffect(() => {
+    if (step === 2 && mapRef.current && !mapInstanceRef.current) {
+      initializeMap()
+    }
+  }, [step])
+
+  // Update circle radius when safe radius changes
+  useEffect(() => {
+    if (circleRef.current) {
+      circleRef.current.setRadius(safeRadius)
+    }
+  }, [safeRadius])
+
+  const initializeMap = async () => {
+    if (!mapRef.current) return
+
+    // Get user's current location
+    let initialLat = 40.7128
+    let initialLng = -74.006
+    const initialZoom = 13
+
+    try {
+      // Try to get user's current position
+      const position = await getCurrentPosition()
+      initialLat = position.coords.latitude
+      initialLng = position.coords.longitude
+
+      // If we have stored coordinates, use those instead
+      if (currentUser?.base_location_lat && currentUser?.base_location_lng) {
+        initialLat = currentUser.base_location_lat
+        initialLng = currentUser.base_location_lng
+
+        // Also set the base location coordinates state
+        setBaseLocationCoords({
+          lat: initialLat,
+          lng: initialLng,
+        })
+
+        // Get address from coordinates for display
+        getAddressFromCoordinates(initialLat, initialLng)
+      }
+
+      // If we have a stored safe radius, use that
+      if (currentUser?.safe_radius) {
+        setSafeRadius(currentUser.safe_radius)
+      }
+    } catch (error) {
+      console.error("Error getting current position:", error)
+      toast.error("Could not get your current location. Using default location.")
+    }
+
+    // Fix Leaflet icon paths issue
+    delete (L.Icon.Default.prototype as any)._getIconUrl
+    L.Icon.Default.mergeOptions({
+      iconRetinaUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png",
+      iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
+      shadowUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png",
+    })
+
+    // Create custom marker icon
+    const homeIcon = L.divIcon({
+      html: `
+        <div class="relative">
+          <div class="absolute -top-4 -left-4 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+              <polyline points="9 22 9 12 15 12 15 22"></polyline>
+            </svg>
+          </div>
+        </div>
+      `,
+      className: "",
+      iconSize: [0, 0],
+      iconAnchor: [0, 0],
+    })
+
+    // Create map instance
+    const map = L.map(mapRef.current).setView([initialLat, initialLng], initialZoom)
+
+    // Add tile layer (OpenStreetMap)
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+    }).addTo(map)
+
+    // Add marker for base location
+    const marker = L.marker([initialLat, initialLng], {
+      icon: homeIcon,
+      draggable: true,
+    })
+      .addTo(map)
+      .bindPopup("Base Location")
+      .openPopup()
+
+    // Add circle for safe radius
+    const circle = L.circle([initialLat, initialLng], {
+      radius: safeRadius,
+      color: "rgba(34, 197, 94, 0.5)",
+      fillColor: "rgba(34, 197, 94, 0.1)",
+      fillOpacity: 0.3,
+    }).addTo(map)
+
+    // Handle marker drag events
+    marker.on("dragend", (e) => {
+      const position = marker.getLatLng()
+      circle.setLatLng(position)
+
+      // Update state with new coordinates
+      setBaseLocationCoords({
+        lat: position.lat,
+        lng: position.lng,
+      })
+
+      // Get address from coordinates
+      getAddressFromCoordinates(position.lat, position.lng)
+    })
+
+    // Store refs
+    mapInstanceRef.current = map
+    markerRef.current = marker
+    circleRef.current = circle
+  }
+
+  const getCurrentPosition = (): Promise<GeolocationPosition> => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error("Geolocation is not supported by your browser"))
+        return
+      }
+
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 5000,
+        maximumAge: 0,
+      })
+    })
+  }
+
+  const setCurrentLocationAsBase = async () => {
+    try {
+      const position = await getCurrentPosition()
+      const { latitude, longitude } = position.coords
+
+      // Update marker and circle positions
+      if (markerRef.current && circleRef.current) {
+        markerRef.current.setLatLng([latitude, longitude])
+        circleRef.current.setLatLng([latitude, longitude])
+
+        // Center map on new location
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.setView([latitude, longitude], mapInstanceRef.current.getZoom())
+        }
+      }
+
+      // Update state
+      setBaseLocationCoords({
+        lat: latitude,
+        lng: longitude,
+      })
+
+      // Get address from coordinates
+      getAddressFromCoordinates(latitude, longitude)
+
+      toast.success("Current location set as base")
+    } catch (error) {
+      console.error("Error getting current position:", error)
+      toast.error("Could not get your current location")
+    }
+  }
+
+  const getAddressFromCoordinates = async (lat: number, lng: number) => {
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+      )
+      const data = await response.json()
+
+      if (data && data.display_name) {
+        setBaseLocation(data.display_name)
+      } else {
+        setBaseLocation(`${lat.toFixed(6)}, ${lng.toFixed(6)}`)
+      }
+    } catch (error) {
+      console.error("Error getting address from coordinates:", error)
+      setBaseLocation(`${lat.toFixed(6)}, ${lng.toFixed(6)}`)
+    }
+  }
+
+  const getCoordinatesFromAddress = async (address: string) => {
+    setIsAddressSearching(true)
+    setAddressSearchError(null)
+
+    try {
+      const encodedAddress = encodeURIComponent(address)
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodedAddress}&limit=1`)
+      const data = await response.json()
+
+      if (data && data.length > 0) {
+        const { lat, lon } = data[0]
+        const latitude = Number.parseFloat(lat)
+        const longitude = Number.parseFloat(lon)
+
+        // Update marker and circle positions
+        if (markerRef.current && circleRef.current) {
+          markerRef.current.setLatLng([latitude, longitude])
+          circleRef.current.setLatLng([latitude, longitude])
+
+          // Center map on new location
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.setView([latitude, longitude], 15)
+          }
+        }
+
+        // Update state
+        setBaseLocationCoords({
+          lat: latitude,
+          lng: longitude,
+        })
+
+        setBaseLocation(address)
+        toast.success("Address located successfully")
+      } else {
+        toast.error("Address not found")
+      }
+    } catch (error) {
+      console.error("Error getting coordinates from address:", error)
+      toast.error("Error searching for address")
+    } finally {
+      setIsAddressSearching(false)
+    }
+  }
+
   const loadCurrentUser = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
       if (!user) {
-        router.push('/login')
+        router.push("/login")
         return
       }
 
       // Get user data from users table
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', user.id)
-        .single()
+      const { data: userData, error: userError } = await supabase.from("users").select("*").eq("id", user.id).single()
 
       if (userError) throw userError
 
       if (userData) {
         setCurrentUser(userData)
-        setPatientName(userData.patient_name || '')
+        setPatientName(userData.patient_name || "")
         setPatientPhotos({
           front: userData.patient_photo_url || undefined,
-          side: userData.patient_side_photo_url || undefined
+          side: userData.patient_side_photo_url || undefined,
         })
+
+        // Set location data if available
+        if (userData.base_location_lat && userData.base_location_lng) {
+          setBaseLocationCoords({
+            lat: userData.base_location_lat,
+            lng: userData.base_location_lng,
+          })
+        }
+
+        if (userData.safe_radius) {
+          setSafeRadius(userData.safe_radius)
+        }
+
         loadKnownPeople(user.id)
       }
     } catch (error) {
-      console.error('Error loading user:', error)
-      toast.error('Failed to load user data')
+      console.error("Error loading user:", error)
+      toast.error("Failed to load user data")
     }
   }
 
   const loadKnownPeople = async (userId: string) => {
     setIsLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('Known_People')
-        .select('*')
-        .eq('user_id', userId)
-      
+      const { data, error } = await supabase.from("Known_People").select("*").eq("user_id", userId)
+
       if (error) {
-        console.error('Supabase error:', error)
+        console.error("Supabase error:", error)
         toast.error(`Failed to load known people: ${error.message}`)
         return
       }
-      
+
       if (data) {
         setKnownPeople(data)
       }
     } catch (error) {
-      console.error('Error loading known people:', error)
-      toast.error('Failed to load known people. Please check your connection.')
+      console.error("Error loading known people:", error)
+      toast.error("Failed to load known people. Please check your connection.")
     } finally {
       setIsLoading(false)
     }
@@ -142,51 +401,68 @@ export default function SetupPage() {
 
   const nextStep = async () => {
     if (step < 4) {
+      // Validate current step
+      if (step === 1 && !patientName) {
+        toast.error("Please enter the patient's name")
+        return
+      }
+
+      if (step === 2 && !baseLocationCoords) {
+        toast.error("Please set a base location")
+        return
+      }
+
       setStep(step + 1)
       setProgress((step + 1) * 25)
     } else {
       if (!currentUser) return
+      if (!baseLocationCoords) {
+        toast.error("Base location coordinates are missing")
+        return
+      }
 
       setIsLoading(true)
       try {
-        // Update user's patient name
+        // Update user's patient name and location data
         const { error: userError } = await supabase
-          .from('users')
-          .update({ patient_name: patientName })
-          .eq('id', currentUser.id)
+          .from("users")
+          .update({
+            patient_name: patientName,
+            base_location_lat: baseLocationCoords.lat,
+            base_location_lng: baseLocationCoords.lng,
+            safe_radius: safeRadius,
+          })
+          .eq("id", currentUser.id)
 
         if (userError) throw userError
 
         // Delete all existing records for this user
-        const { error: deleteError } = await supabase
-          .from('Known_People')
-          .delete()
-          .eq('user_id', currentUser.id)
+        const { error: deleteError } = await supabase.from("Known_People").delete().eq("user_id", currentUser.id)
 
         if (deleteError) {
-          console.error('Error deleting existing records:', deleteError)
+          console.error("Error deleting existing records:", deleteError)
           throw deleteError
         }
 
         // Insert all new records
-        const { error: insertError } = await supabase
-          .from('Known_People')
-          .insert(knownPeople.map(person => ({
+        const { error: insertError } = await supabase.from("Known_People").insert(
+          knownPeople.map((person) => ({
             ...person,
             details: person.details || null,
-            supabase_img_url: person.supabase_img_url || null
-          })))
+            supabase_img_url: person.supabase_img_url || null,
+          })),
+        )
 
         if (insertError) {
-          console.error('Error inserting new records:', insertError)
+          console.error("Error inserting new records:", insertError)
           throw insertError
         }
-        
-        toast.success('Setup completed successfully!')
+
+        toast.success("Setup completed successfully!")
         router.push("/dashboard")
       } catch (error: any) {
-        console.error('Error saving data:', error.message || error)
-        toast.error(`Failed to save data: ${error.message || 'Unknown error'}`)
+        console.error("Error saving data:", error.message || error)
+        toast.error(`Failed to save data: ${error.message || "Unknown error"}`)
       } finally {
         setIsLoading(false)
       }
@@ -202,28 +478,26 @@ export default function SetupPage() {
 
   const handleUploadToSupabase = async (file: File): Promise<string> => {
     if (!file) return ""
-    
+
     setUploading(true)
     try {
-      const fileExt = file.name.split('.').pop()
+      const fileExt = file.name.split(".").pop()
       const fileName = `${v4()}.${fileExt}`
       const filePath = `patient-images/${fileName}`
 
-      const { error: uploadError, data } = await supabase.storage
-        .from('patient-images')
-        .upload(filePath, file)
+      const { error: uploadError, data } = await supabase.storage.from("patient-images").upload(filePath, file)
 
       if (uploadError) throw uploadError
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('patient-images')
-        .getPublicUrl(filePath)
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("patient-images").getPublicUrl(filePath)
 
-      toast.success('Image uploaded successfully')
+      toast.success("Image uploaded successfully")
       return publicUrl
     } catch (error) {
       console.error("Error uploading image:", error)
-      toast.error('Failed to upload image')
+      toast.error("Failed to upload image")
       return ""
     } finally {
       setUploading(false)
@@ -238,7 +512,7 @@ export default function SetupPage() {
 
     setIsLoading(true)
     let supabaseImageUrl = ""
-    
+
     try {
       if (personPhotoURL && personPhotoURL.startsWith("data:")) {
         const response = await fetch(personPhotoURL)
@@ -255,22 +529,21 @@ export default function SetupPage() {
         address: personAddress,
         photo_url: personPhotoURL || `/placeholder.svg?height=150&width=150&text=${personName.charAt(0)}`,
         supabase_img_url: supabaseImageUrl || null,
-        phone: parseInt(personPhone) || 0,
-        user_id: currentUser.id
+        phone: Number.parseInt(personPhone) || 0,
+        user_id: currentUser.id,
+        is_emergency_contact: isEmergencyContact,
       }
 
       // Insert directly into Supabase
-      const { error: insertError } = await supabase
-        .from('Known_People')
-        .insert([newPerson])
+      const { error: insertError } = await supabase.from("Known_People").insert([newPerson])
 
       if (insertError) {
-        console.error('Error inserting person:', insertError)
+        console.error("Error inserting person:", insertError)
         throw insertError
       }
 
       setKnownPeople([...knownPeople, newPerson])
-      toast.success('Person added successfully')
+      toast.success("Person added successfully")
 
       // Clear form
       setPersonName("")
@@ -279,17 +552,17 @@ export default function SetupPage() {
       setPersonPhotoURL("")
       setPersonAddress("")
       setPersonPhone("")
+      setIsEmergencyContact(false)
       if (fileInputRef.current) {
         fileInputRef.current.value = ""
       }
     } catch (error) {
-      console.error('Error adding person:', error)
-      toast.error('Failed to add person')
+      console.error("Error adding person:", error)
+      toast.error("Failed to add person")
     } finally {
       setIsLoading(false)
     }
   }
-
 
   const handleRemovePerson = async (id: number) => {
     if (!currentUser) return
@@ -297,37 +570,31 @@ export default function SetupPage() {
     setIsLoading(true)
     try {
       // First, get the person's photo URL if it exists
-      const person = knownPeople.find(p => p.id === id)
+      const person = knownPeople.find((p) => p.id === id)
       if (person?.supabase_img_url) {
         // Extract the file path from the URL
-        const filePath = person.supabase_img_url.split('/').pop()
+        const filePath = person.supabase_img_url.split("/").pop()
         if (filePath) {
           // Delete the image from storage
-          const { error: storageError } = await supabase.storage
-            .from('patient-images')
-            .remove([filePath])
+          const { error: storageError } = await supabase.storage.from("patient-images").remove([filePath])
 
           if (storageError) {
-            console.error('Error deleting image from storage:', storageError)
+            console.error("Error deleting image from storage:", storageError)
           }
         }
       }
 
       // Delete the person from the database
-      const { error } = await supabase
-        .from('Known_People')
-        .delete()
-        .eq('id', id)
-        .eq('user_id', currentUser.id)
-      
+      const { error } = await supabase.from("Known_People").delete().eq("id", id).eq("user_id", currentUser.id)
+
       if (error) throw error
-      
+
       // Update local state
       setKnownPeople(knownPeople.filter((person) => person.id !== id))
-      toast.success('Person removed successfully')
+      toast.success("Person removed successfully")
     } catch (error) {
-      console.error('Error removing person:', error)
-      toast.error('Failed to remove person')
+      console.error("Error removing person:", error)
+      toast.error("Failed to remove person")
     } finally {
       setIsLoading(false)
     }
@@ -348,28 +615,28 @@ export default function SetupPage() {
     }
   }
 
-  const handlePatientPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'front' | 'side') => {
+  const handlePatientPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>, type: "front" | "side") => {
     if (!currentUser) return
 
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0]
       const downloadURL = await handleUploadToSupabase(file)
-      
-      setPatientPhotos(prev => ({
+
+      setPatientPhotos((prev) => ({
         ...prev,
-        [type]: downloadURL
+        [type]: downloadURL,
       }))
 
       // Update user's photo in the database
-      const updateField = type === 'front' ? 'patient_photo_url' : 'patient_side_photo_url'
+      const updateField = type === "front" ? "patient_photo_url" : "patient_side_photo_url"
       const { error } = await supabase
-        .from('users')
+        .from("users")
         .update({ [updateField]: downloadURL })
-        .eq('id', currentUser.id)
+        .eq("id", currentUser.id)
 
       if (error) {
-        console.error('Error updating patient photo:', error)
-        toast.error('Failed to update patient photo')
+        console.error("Error updating patient photo:", error)
+        toast.error("Failed to update patient photo")
       }
     }
   }
@@ -380,33 +647,48 @@ export default function SetupPage() {
       fileInputRef.current.value = ""
     }
   }
-  const handleDeletePatientPhoto = async (type: 'front' | 'side') => {
+
+  const handleDeletePatientPhoto = async (type: "front" | "side") => {
     if (!currentUser) return
 
     try {
       // Update the state to remove the photo
-      setPatientPhotos(prev => ({
+      setPatientPhotos((prev) => ({
         ...prev,
-        [type]: undefined
+        [type]: undefined,
       }))
 
       // Update the database to remove the photo URL
-      const updateField = type === 'front' ? 'patient_photo_url' : 'patient_side_photo_url'
+      const updateField = type === "front" ? "patient_photo_url" : "patient_side_photo_url"
       const { error } = await supabase
-        .from('users')
+        .from("users")
         .update({ [updateField]: null })
-        .eq('id', currentUser.id)
+        .eq("id", currentUser.id)
 
       if (error) {
-        console.error('Error deleting patient photo:', error)
-        toast.error('Failed to delete patient photo')
+        console.error("Error deleting patient photo:", error)
+        toast.error("Failed to delete patient photo")
       } else {
-        toast.success('Photo deleted successfully')
+        toast.success("Photo deleted successfully")
       }
     } catch (error) {
-      console.error('Error deleting patient photo:', error)
-      toast.error('Failed to delete patient photo')
+      console.error("Error deleting patient photo:", error)
+      toast.error("Failed to delete patient photo")
     }
+  }
+
+  const handleAddressSearch = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (baseLocation.trim()) {
+      getCoordinatesFromAddress(baseLocation.trim())
+    } else {
+      toast.error("Please enter an address to search")
+    }
+  }
+
+  const handleSafeRadiusChange = (value: number[]) => {
+    const radius = value[0]
+    setSafeRadius(radius)
   }
 
   return (
@@ -423,20 +705,20 @@ export default function SetupPage() {
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
           )}
-          
+
           {step === 1 && (
             <div className="space-y-4">
               <h3 className="text-lg font-medium">Upload Patient Photos</h3>
               <p className="text-muted-foreground">Upload clear photos of the patient to help with identification</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div 
+                <div
                   className="border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center h-40 cursor-pointer hover:border-primary"
                   onClick={() => frontPhotoRef.current?.click()}
                 >
                   {patientPhotos.front ? (
-                    <img 
-                      src={patientPhotos.front} 
-                      alt="Front-facing preview" 
+                    <img
+                      src={patientPhotos.front || "/placeholder.svg"}
+                      alt="Front-facing preview"
                       className="h-full w-full object-cover rounded"
                     />
                   ) : (
@@ -445,22 +727,22 @@ export default function SetupPage() {
                       <p className="text-sm text-muted-foreground">Upload front-facing photo</p>
                     </>
                   )}
-                  <input 
-                    type="file" 
-                    className="hidden" 
-                    accept="image/*" 
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
                     ref={frontPhotoRef}
-                    onChange={(e) => handlePatientPhotoChange(e, 'front')}
+                    onChange={(e) => handlePatientPhotoChange(e, "front")}
                   />
                 </div>
-                <div 
+                <div
                   className="border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center h-40 cursor-pointer hover:border-primary"
                   onClick={() => sidePhotoRef.current?.click()}
                 >
                   {patientPhotos.side ? (
-                    <img 
-                      src={patientPhotos.side} 
-                      alt="Side-profile preview" 
+                    <img
+                      src={patientPhotos.side || "/placeholder.svg"}
+                      alt="Side-profile preview"
                       className="h-full w-full object-cover rounded"
                     />
                   ) : (
@@ -469,19 +751,19 @@ export default function SetupPage() {
                       <p className="text-sm text-muted-foreground">Upload side-profile photo</p>
                     </>
                   )}
-                  <input 
-                    type="file" 
-                    className="hidden" 
-                    accept="image/*" 
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
                     ref={sidePhotoRef}
-                    onChange={(e) => handlePatientPhotoChange(e, 'side')}
+                    onChange={(e) => handlePatientPhotoChange(e, "side")}
                   />
                 </div>
               </div>
               <div className="space-y-2 mt-4">
                 <Label htmlFor="patient-name">Patient Name</Label>
-                <Input 
-                  id="patient-name" 
+                <Input
+                  id="patient-name"
                   placeholder="Enter patient's full name"
                   value={patientName}
                   onChange={(e) => setPatientName(e.target.value)}
@@ -489,7 +771,7 @@ export default function SetupPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="relationship">Your Relationship to Patient</Label>
-                <Select>
+                <Select value={patientRelationship} onValueChange={setPatientRelationship}>
                   <SelectTrigger id="relationship">
                     <SelectValue placeholder="Select relationship" />
                   </SelectTrigger>
@@ -508,28 +790,73 @@ export default function SetupPage() {
             <div className="space-y-4">
               <h3 className="text-lg font-medium">Set Location Parameters</h3>
               <p className="text-muted-foreground">Define the base location and safe radius for the patient</p>
-              <div className="border rounded-lg p-4 h-64 bg-muted flex items-center justify-center">
-                <div className="text-center">
-                  <MapPin className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground">Map will be displayed here</p>
-                  <Button variant="outline" size="sm" className="mt-2">
-                    Set Current Location as Base
+
+              <div className="border rounded-lg overflow-hidden h-64">
+                <div ref={mapRef} className="w-full h-full"></div>
+              </div>
+
+              <div className="flex justify-center">
+                <Button variant="outline" size="sm" onClick={setCurrentLocationAsBase} className="flex items-center">
+                  <MapPin className="mr-2 h-4 w-4" />
+                  Set Current Location as Base
+                </Button>
+              </div>
+
+              <form onSubmit={handleAddressSearch} className="space-y-2">
+                <Label htmlFor="address">Base Location Address</Label>
+                <div className="flex space-x-2">
+                  <div className="relative flex-grow">
+                    <Input
+                      id="address"
+                      placeholder="Enter full address"
+                      value={baseLocation}
+                      onChange={(e) => setBaseLocation(e.target.value)}
+                      className="pr-10"
+                    />
+                    {isAddressSearching && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  <Button type="submit" disabled={isAddressSearching}>
+                    <Search className="h-4 w-4 mr-2" />
+                    Search
                   </Button>
                 </div>
-              </div>
+                {addressSearchError && <p className="text-sm text-destructive mt-1">{addressSearchError}</p>}
+              </form>
+
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <Label htmlFor="radius">Safe Radius (meters)</Label>
-                  <span className="text-sm text-muted-foreground">500m</span>
+                  <span className="text-sm text-muted-foreground">{safeRadius}m</span>
                 </div>
-                <Slider defaultValue={[500]} min={100} max={2000} step={100} />
+                <Slider
+                  id="radius"
+                  value={[safeRadius]}
+                  min={100}
+                  max={2000}
+                  step={100}
+                  onValueChange={handleSafeRadiusChange}
+                />
+                <p className="text-xs text-muted-foreground">
+                  The patient will be considered safe when within this radius of the base location.
+                </p>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="address">Base Location Address</Label>
-                <Input id="address" placeholder="Enter full address" />
-              </div>
+
+              {baseLocationCoords && (
+                <div className="p-3 bg-muted rounded-md">
+                  <p className="text-sm font-medium">Selected Location:</p>
+                  <p className="text-sm text-muted-foreground break-words">{baseLocation}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Coordinates: {baseLocationCoords.lat.toFixed(6)}, {baseLocationCoords.lng.toFixed(6)}
+                  </p>
+                </div>
+              )}
             </div>
           )}
+
           {step === 3 && (
             <div className="space-y-4">
               <h3 className="text-lg font-medium">Add Known People</h3>
@@ -651,15 +978,15 @@ export default function SetupPage() {
                           size="icon"
                           className="absolute -top-2 -right-2 h-6 w-6 rounded-full"
                           onClick={(e) => {
-                            e.stopPropagation();
-                            clearPhotoPreview();
+                            e.stopPropagation()
+                            clearPhotoPreview()
                           }}
                         >
                           <X className="h-3 w-3" />
                         </Button>
                       </div>
                     ) : (
-                      <div 
+                      <div
                         className="border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center h-24 cursor-pointer hover:border-primary"
                         onClick={() => fileInputRef.current?.click()}
                       >
@@ -678,8 +1005,8 @@ export default function SetupPage() {
 
                   <div className="space-y-2">
                     <Label className="flex items-center space-x-2 cursor-pointer">
-                      <Input 
-                        type="checkbox" 
+                      <Input
+                        type="checkbox"
                         className="w-4 h-4"
                         checked={isEmergencyContact}
                         onChange={(e) => setIsEmergencyContact(e.target.checked)}
@@ -695,7 +1022,7 @@ export default function SetupPage() {
               </div>
             </div>
           )}
-           {step === 4 && (
+          {step === 4 && (
             <div className="space-y-4">
               <h3 className="text-lg font-medium">Review and Confirm</h3>
               <p className="text-muted-foreground">Please review the information below before finalizing setup</p>
@@ -711,7 +1038,7 @@ export default function SetupPage() {
                   </div>
                   <div>
                     <p className="text-sm font-medium">Base Location:</p>
-                    <p className="text-sm text-muted-foreground">{baseLocation}</p>
+                    <p className="text-sm text-muted-foreground line-clamp-2">{baseLocation}</p>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Safe Radius:</p>
@@ -722,29 +1049,31 @@ export default function SetupPage() {
                 <div className="pt-3 border-t mt-3">
                   <h4 className="text-sm font-medium mb-2">Emergency Contacts</h4>
                   <div className="space-y-2">
-                    {knownPeople.filter(person => person.is_emergency_contact).map(person => (
-                      <div key={person.id} className="flex items-center space-x-3">
-                        <div className="h-8 w-8 rounded-full overflow-hidden">
-                          {person.photo_url.startsWith("data:") ? (
-                            <img
-                              src={person.photo_url}
-                              alt={person.name}
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <div className="h-full w-full bg-muted flex items-center justify-center text-sm font-semibold">
-                              {person.name.charAt(0)}
-                            </div>
-                          )}
+                    {knownPeople
+                      .filter((person) => person.is_emergency_contact)
+                      .map((person) => (
+                        <div key={person.id} className="flex items-center space-x-3">
+                          <div className="h-8 w-8 rounded-full overflow-hidden">
+                            {person.photo_url.startsWith("data:") ? (
+                              <img
+                                src={person.photo_url || "/placeholder.svg"}
+                                alt={person.name}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="h-full w-full bg-muted flex items-center justify-center text-sm font-semibold">
+                                {person.name.charAt(0)}
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">{person.name}</p>
+                            <p className="text-sm text-muted-foreground">{person.phone}</p>
+                            <p className="text-sm text-muted-foreground">Relationship: {person.relationship}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm font-medium">{person.name}</p>
-                          <p className="text-sm text-muted-foreground">{person.phone}</p>
-                          <p className="text-sm text-muted-foreground">Relationship: {person.relationship}</p>
-                        </div>
-                      </div>
-                    ))}
-                    {knownPeople.filter(person => person.is_emergency_contact).length === 0 && (
+                      ))}
+                    {knownPeople.filter((person) => person.is_emergency_contact).length === 0 && (
                       <p className="text-sm text-muted-foreground">No emergency contacts designated</p>
                     )}
                   </div>
@@ -753,18 +1082,18 @@ export default function SetupPage() {
                 <div className="flex justify-center space-x-2">
                   {patientPhotos.front && (
                     <div className="relative w-20 h-20">
-                      <img 
-                        src={patientPhotos.front} 
-                        alt="Front-facing photo" 
+                      <img
+                        src={patientPhotos.front || "/placeholder.svg"}
+                        alt="Front-facing photo"
                         className="w-full h-full object-cover rounded-lg"
                       />
                     </div>
                   )}
                   {patientPhotos.side && (
                     <div className="relative w-20 h-20">
-                      <img 
-                        src={patientPhotos.side} 
-                        alt="Side-profile photo" 
+                      <img
+                        src={patientPhotos.side || "/placeholder.svg"}
+                        alt="Side-profile photo"
                         className="w-full h-full object-cover rounded-lg"
                       />
                     </div>
@@ -784,7 +1113,8 @@ export default function SetupPage() {
                     </Button>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    {knownPeople.length} people added ({knownPeople.filter(p => p.is_emergency_contact).length} emergency contacts)
+                    {knownPeople.length} people added ({knownPeople.filter((p) => p.is_emergency_contact).length}{" "}
+                    emergency contacts)
                   </p>
                 </div>
               </div>
@@ -807,16 +1137,17 @@ export default function SetupPage() {
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 {step < 4 ? "Saving..." : "Completing Setup..."}
               </>
+            ) : step < 4 ? (
+              "Continue"
             ) : (
-              step < 4 ? "Continue" : "Complete Setup"
+              "Complete Setup"
             )}
           </Button>
         </CardFooter>
       </Card>
 
-
       {/* Known People Modal */}
-       <Dialog open={showKnownPeopleModal} onOpenChange={setShowKnownPeopleModal}>
+      <Dialog open={showKnownPeopleModal} onOpenChange={setShowKnownPeopleModal}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Known People List</DialogTitle>
@@ -856,3 +1187,4 @@ export default function SetupPage() {
     </div>
   )
 }
+

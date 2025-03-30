@@ -1,6 +1,5 @@
 
 "use client"
-{/*THIS IS THE LATEST PUSH*/}
 
 import type React from "react"
 
@@ -526,7 +525,11 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <Button className="w-full" variant="outline" onClick={() => setShowIdentityDialog(true)}>
+
+              <Button className="w-full" variant="outline"   onClick={() => {
+    setShowIdentityDialog(true);
+    setIsMapVisible(false);
+  }}>
                 Edit Patient Details
               </Button>
             </CardContent>
@@ -623,12 +626,14 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
+
           </DialogHeader>
           <DialogFooter>
             <Button
               className="w-full"
               onClick={() => {
                 setShowIdentityDialog(false)
+                setIsMapVisible(true)
                 handleEmergencyCall()
               }}
             >
