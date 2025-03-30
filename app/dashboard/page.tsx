@@ -1023,10 +1023,6 @@ export default function DashboardPage() {
                     <AlertTitle>Warning</AlertTitle>
                     <AlertDescription>This person is not in your database. They may be a stranger.</AlertDescription>
                   </Alert>
-                  <Button variant="outline" onClick={() => setShowAddPersonDialog(true)}>
-                    <UserPlus className="mr-2 h-4 w-4" />
-                    Add to Known People
-                  </Button>
                 </>
               )}
 
@@ -1049,7 +1045,6 @@ export default function DashboardPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add New Person</DialogTitle>
-            <DialogDescription>Add this person to your known people database</DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col space-y-4 py-4">
